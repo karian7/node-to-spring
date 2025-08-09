@@ -12,4 +12,5 @@ import java.util.List;
 public interface MessageRepository extends MongoRepository<Message, String> {
     List<Message> findByRoomId(String roomId);
     Page<Message> findByRoomId(String roomId, Pageable pageable);
+    Page<Message> findByRoomIdAndTimestampBefore(String roomId, java.time.LocalDateTime timestamp, Pageable pageable);
 }

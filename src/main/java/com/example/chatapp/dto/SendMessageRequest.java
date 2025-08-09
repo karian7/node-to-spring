@@ -17,8 +17,11 @@ public class SendMessageRequest {
     @NotNull
     private String roomId;
 
-    @NotBlank
     private String content;
 
+    @NotNull
+    @Builder.Default
     private MessageType type = MessageType.TEXT;
+
+    private String fileId;
 }
