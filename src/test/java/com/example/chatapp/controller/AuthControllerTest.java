@@ -22,10 +22,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// TODO: Re-enable these tests after fixing the embedded mongo environment issue.
-// The tests are disabled because Flapdoodle Embedded MongoDB is failing to start in the current environment.
-// It cannot resolve the correct package for the detected "Ubuntu" distribution.
-@Disabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @AutoConfigureDataMongo
@@ -57,7 +53,7 @@ public class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.message").value("User registered successfully!"))
+                .andExpect(jsonPath("$.message").value("회원가입이 완료되었습니다."))
                 .andExpect(jsonPath("$.token").exists())
                 .andExpect(jsonPath("$.sessionId").value("mock-session-id"))
                 .andExpect(jsonPath("$.user.email").value(email))

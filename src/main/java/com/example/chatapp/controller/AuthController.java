@@ -1,7 +1,10 @@
 package com.example.chatapp.controller;
 
-import java.util.ArrayList;
-
+import com.example.chatapp.dto.*;
+import com.example.chatapp.model.User;
+import com.example.chatapp.repository.UserRepository;
+import com.example.chatapp.service.SessionService;
+import com.example.chatapp.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,16 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.chatapp.dto.LoginRequest;
-import com.example.chatapp.dto.LoginResponse;
-import com.example.chatapp.dto.RegisterRequest;
-import com.example.chatapp.dto.RegisterResponse;
-import com.example.chatapp.dto.UserDto;
-import com.example.chatapp.dto.ErrorResponse;
-import com.example.chatapp.model.User;
-import com.example.chatapp.repository.UserRepository;
-import com.example.chatapp.service.SessionService;
-import com.example.chatapp.util.JwtUtil;
+import java.util.ArrayList;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -70,7 +64,7 @@ public class AuthController {
         final String sessionId = sessionService.createSession(user.getId());
         final String token = jwtUtil.generateToken(userDetails, sessionId);
 
-        UserDto userDto = new UserDto(user.getId(), user.getName(), user.getEmail());
+        UserDto userDto = new UserDto(user.getId(), user.getName(), user.getEmail(), user.getProfileImage());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 new RegisterResponse(true, "회원가입이 완료되었습니다.", token, sessionId, userDto));
