@@ -36,5 +36,6 @@ public class Room {
     private LocalDateTime createdAt;
 
     @Field("participantIds")
+    @Builder.Default
     private Set<String> participantIds = new HashSet<>();
 }

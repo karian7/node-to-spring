@@ -96,11 +96,11 @@ public class RoomController {
         if (creator == null) {
             throw new RuntimeException("Creator not found for room " + room.getId());
         }
-        UserSummaryResponse creatorSummary = new UserSummaryResponse(creator.getId(), creator.getName(), creator.getEmail());
+        UserSummaryResponse creatorSummary = new UserSummaryResponse(creator.getId(), creator.getName(), creator.getEmail(), creator.getProfileImage());
 
         List<User> participants = (List<User>) userRepository.findAllById(room.getParticipantIds());
         List<UserSummaryResponse> participantSummaries = participants.stream()
-                .map(p -> new UserSummaryResponse(p.getId(), p.getName(), p.getEmail()))
+                .map(p -> new UserSummaryResponse(p.getId(), p.getName(), p.getEmail(), p.getProfileImage()))
                 .collect(Collectors.toList());
 
         boolean isCreator = principal != null && creator.getEmail().equals(principal.getName());

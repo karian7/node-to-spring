@@ -55,7 +55,8 @@ public class MessageController {
                 senderSummary = new UserSummaryResponse(
                         sender.getId(),
                         sender.getName(),
-                        sender.getEmail()
+                        sender.getEmail(),
+                        sender.getProfileImage()
                 );
             }
         }

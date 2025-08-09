@@ -11,6 +11,8 @@ import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Data
 @Builder
@@ -42,5 +44,31 @@ public class Message {
     @CreatedDate
     private LocalDateTime timestamp;
 
+    @Builder.Default
     private boolean isDeleted = false;
+
+    private Map<String, Set<String>> reactions;
+
+    private List<ReaderInfo> readers;
+
+    private FileMetadata metadata;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReaderInfo {
+        private String userId;
+        private LocalDateTime readAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FileMetadata {
+        private String fileType;
+        private long fileSize;
+        private String originalName;
+    }
 }
