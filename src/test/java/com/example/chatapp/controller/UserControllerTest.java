@@ -35,7 +35,7 @@ public class UserControllerTest {
     @BeforeEach
     void setUp() {
         user = new User();
-        user.setId(1L);
+        user.setId("mock-user-id");
         user.setName("Test User");
         user.setEmail("test@example.com");
         user.setProfileImage("image.jpg");

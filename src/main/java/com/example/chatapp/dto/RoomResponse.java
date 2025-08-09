@@ -13,7 +13,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RoomResponse {
-    private Long id;
+    private String id;
     private String name;
     private boolean hasPassword;
     private UserSummaryResponse creator;

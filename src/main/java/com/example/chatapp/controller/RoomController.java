@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -48,8 +49,8 @@ public class RoomController {
 
         Room room = new Room();
         room.setName(createRoomRequest.getName());
-        room.setCreator(creator);
-        room.getParticipants().add(creator);
+        room.setCreatorId(creator.getId());
+        room.getParticipantIds().add(creator.getId());
 
         if (createRoomRequest.getPassword() != null && !createRoomRequest.getPassword().isEmpty()) {
             room.setHasPassword(true);
@@ -61,14 +62,14 @@ public class RoomController {
     }
 
     @GetMapping("/{roomId}")
-    public ResponseEntity<RoomResponse> getRoomById(@PathVariable Long roomId, Principal principal) {
+    public ResponseEntity<RoomResponse> getRoomById(@PathVariable String roomId, Principal principal) {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found with id: " + roomId));
         return ResponseEntity.ok(mapToRoomResponse(room, principal));
     }
 
     @PostMapping("/{roomId}/join")
-    public ResponseEntity<RoomResponse> joinRoom(@PathVariable Long roomId, @RequestBody JoinRoomRequest joinRoomRequest, Principal principal) {
+    public ResponseEntity<RoomResponse> joinRoom(@PathVariable String roomId, @RequestBody JoinRoomRequest joinRoomRequest, Principal principal) {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found with id: " + roomId));
 
@@ -81,8 +82,8 @@ public class RoomController {
             }
         }
 
-        if (!room.getParticipants().contains(user)) {
-            room.getParticipants().add(user);
+        if (!room.getParticipantIds().contains(user.getId())) {
+            room.getParticipantIds().add(user.getId());
             roomRepository.save(room);
         }
 
@@ -91,14 +92,18 @@ public class RoomController {
 
 
     private RoomResponse mapToRoomResponse(Room room, Principal principal) {
-        User creator = room.getCreator();
+        User creator = userRepository.findById(room.getCreatorId()).orElse(null);
+        if (creator == null) {
+            throw new RuntimeException("Creator not found for room " + room.getId());
+        }
         UserSummaryResponse creatorSummary = new UserSummaryResponse(creator.getId(), creator.getName(), creator.getEmail());
 
-        List<UserSummaryResponse> participantSummaries = room.getParticipants().stream()
+        List<User> participants = (List<User>) userRepository.findAllById(room.getParticipantIds());
+        List<UserSummaryResponse> participantSummaries = participants.stream()
                 .map(p -> new UserSummaryResponse(p.getId(), p.getName(), p.getEmail()))
                 .collect(Collectors.toList());
 
-        boolean isCreator = principal != null && room.getCreator().getEmail().equals(principal.getName());
+        boolean isCreator = principal != null && creator.getEmail().equals(principal.getName());
 
         return new RoomResponse(
                 room.getId(),

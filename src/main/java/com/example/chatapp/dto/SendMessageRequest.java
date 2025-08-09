@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 public class SendMessageRequest {
 
     @NotNull
-    private Long roomId;
+    private String roomId;
 
     @NotBlank
     private String content;

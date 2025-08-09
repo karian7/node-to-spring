@@ -3,10 +3,13 @@ package com.example.chatapp.controller;
 import com.example.chatapp.dto.FileUploadResponse;
 import com.example.chatapp.dto.MessageResponse;
 import com.example.chatapp.dto.UserSummaryResponse;
+import com.example.chatapp.model.File;
 import com.example.chatapp.model.Message;
-import com.example.chatapp.model.Room;
+import com.example.chatapp.model.User;
+import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
+import com.example.chatapp.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,12 +30,18 @@ public class MessageController {
     @Autowired
     private RoomRepository roomRepository;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private FileRepository fileRepository;
+
     @GetMapping
-    public ResponseEntity<Page<MessageResponse>> getMessagesForRoom(@PathVariable Long roomId, Pageable pageable) {
-        Room room = roomRepository.findById(roomId)
+    public ResponseEntity<Page<MessageResponse>> getMessagesForRoom(@PathVariable String roomId, Pageable pageable) {
+        roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found with id: " + roomId));
 
-        Page<Message> messages = messageRepository.findByRoom(room, pageable);
+        Page<Message> messages = messageRepository.findByRoomId(roomId, pageable);
         Page<MessageResponse> messageResponses = messages.map(this::mapToMessageResponse);
 
         return ResponseEntity.ok(messageResponses);
@@ -40,32 +49,38 @@ public class MessageController {
 
     private MessageResponse mapToMessageResponse(Message message) {
         UserSummaryResponse senderSummary = null;
-        if (message.getSender() != null) {
-            senderSummary = new UserSummaryResponse(
-                    message.getSender().getId(),
-                    message.getSender().getName(),
-                    message.getSender().getEmail()
-            );
+        if (message.getSenderId() != null) {
+            User sender = userRepository.findById(message.getSenderId()).orElse(null);
+            if (sender != null) {
+                senderSummary = new UserSummaryResponse(
+                        sender.getId(),
+                        sender.getName(),
+                        sender.getEmail()
+                );
+            }
         }
 
         FileUploadResponse fileResponse = null;
-        if (message.getFile() != null) {
-            String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path("/api/files/download/")
-                .path(message.getFile().getFilename())
-                .toUriString();
-            fileResponse = new FileUploadResponse(
-                    message.getFile().getFilename(),
-                    message.getFile().getOriginalname(),
-                    message.getFile().getMimetype(),
-                    message.getFile().getSize(),
-                    fileDownloadUri
-            );
+        if (message.getFileId() != null) {
+            File file = fileRepository.findById(message.getFileId()).orElse(null);
+            if (file != null) {
+                String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+                    .path("/api/files/download/")
+                    .path(file.getFilename())
+                    .toUriString();
+                fileResponse = new FileUploadResponse(
+                        file.getFilename(),
+                        file.getOriginalname(),
+                        file.getMimetype(),
+                        file.getSize(),
+                        fileDownloadUri
+                );
+            }
         }
 
         return new MessageResponse(
                 message.getId(),
-                message.getRoom().getId(),
+                message.getRoomId(),
                 message.getContent(),
                 senderSummary,
                 message.getType(),

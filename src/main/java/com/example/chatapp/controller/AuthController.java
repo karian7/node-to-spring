@@ -53,7 +53,7 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@RequestBody RegisterRequest registerRequest) {
         if (userRepository.findByEmail(registerRequest.getEmail()).isPresent()) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(false, "Error: Email is already in use!"));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(false, "이미 등록된 이메일입니다."));
         }
 
         User user = User.builder()
@@ -62,7 +62,7 @@ public class AuthController {
                 .password(passwordEncoder.encode(registerRequest.getPassword()))
                 .build();
 
-        userRepository.saveAndFlush(user);
+        userRepository.save(user);
 
         UserDetails userDetails = new org.springframework.security.core.userdetails.User(user.getEmail(), user.getPassword(),
                 new ArrayList<>());
@@ -73,7 +73,7 @@ public class AuthController {
         UserDto userDto = new UserDto(user.getId(), user.getName(), user.getEmail());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                new RegisterResponse(true, "User registered successfully!", token, sessionId, userDto));
+                new RegisterResponse(true, "회원가입이 완료되었습니다.", token, sessionId, userDto));
     }
 
     @PostMapping("/login")

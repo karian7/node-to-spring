@@ -45,7 +45,7 @@ public class FileController {
         dbFile.setOriginalname(file.getOriginalFilename());
         dbFile.setMimetype(file.getContentType());
         dbFile.setSize(file.getSize());
-        dbFile.setUser(user);
+        dbFile.setUserId(user.getId());
         dbFile.setPath(fileService.loadFileAsResource(fileName).toString()); // This should be the path
 
         fileRepository.save(dbFile);

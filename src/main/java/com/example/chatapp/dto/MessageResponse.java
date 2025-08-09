@@ -15,8 +15,8 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MessageResponse {
-    private Long id;
-    private Long roomId;
+    private String id;
+    private String roomId;
     private String content;
     private UserSummaryResponse sender;
     private MessageType type;

@@ -16,27 +16,27 @@ public class SessionService {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    public String createSession(Long userId) {
+    public String createSession(String userId) {
         String sessionId = UUID.randomUUID().toString();
         String key = USER_SESSION_PREFIX + userId;
         redisTemplate.opsForValue().set(key, sessionId, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
         return sessionId;
     }
 
-    public String getSession(Long userId) {
+    public String getSession(String userId) {
         return redisTemplate.opsForValue().get(USER_SESSION_PREFIX + userId);
     }
 
-    public void removeSession(Long userId) {
+    public void removeSession(String userId) {
         redisTemplate.delete(USER_SESSION_PREFIX + userId);
     }
 
-    public boolean isSessionValid(Long userId, String sessionId) {
+    public boolean isSessionValid(String userId, String sessionId) {
         String storedSessionId = getSession(userId);
         return sessionId != null && sessionId.equals(storedSessionId);
     }
 
-    public void refreshSession(Long userId) {
+    public void refreshSession(String userId) {
         String key = USER_SESSION_PREFIX + userId;
         redisTemplate.expire(key, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
     }

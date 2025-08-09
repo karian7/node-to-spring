@@ -4,7 +4,6 @@ import com.example.chatapp.dto.MessageResponse;
 import com.example.chatapp.dto.SendMessageRequest;
 import com.example.chatapp.dto.UserSummaryResponse;
 import com.example.chatapp.model.Message;
-import com.example.chatapp.model.Room;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
@@ -38,35 +37,35 @@ public class ChatController {
         User sender = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        Room room = roomRepository.findById(chatMessage.getRoomId())
+        roomRepository.findById(chatMessage.getRoomId())
                 .orElseThrow(() -> new RuntimeException("Room not found"));
 
         Message message = new Message();
-        message.setSender(sender);
-        message.setRoom(room);
+        message.setSenderId(sender.getId());
+        message.setRoomId(chatMessage.getRoomId());
         message.setContent(chatMessage.getContent());
         message.setType(chatMessage.getType());
 
         Message savedMessage = messageRepository.save(message);
 
-        MessageResponse messageResponse = mapToMessageResponse(savedMessage);
+        MessageResponse messageResponse = mapToMessageResponse(savedMessage, sender);
 
         messagingTemplate.convertAndSend("/topic/rooms/" + chatMessage.getRoomId(), messageResponse);
     }
 
-    private MessageResponse mapToMessageResponse(Message message) {
+    private MessageResponse mapToMessageResponse(Message message, User sender) {
         UserSummaryResponse senderSummary = null;
-        if (message.getSender() != null) {
+        if (sender != null) {
             senderSummary = new UserSummaryResponse(
-                    message.getSender().getId(),
-                    message.getSender().getName(),
-                    message.getSender().getEmail()
+                    sender.getId(),
+                    sender.getName(),
+                    sender.getEmail()
             );
         }
 
         return new MessageResponse(
                 message.getId(),
-                message.getRoom().getId(),
+                message.getRoomId(),
                 message.getContent(),
                 senderSummary,
                 message.getType(),
