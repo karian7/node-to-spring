@@ -35,19 +35,6 @@ public class SessionService {
         return sessionId;
     }
 
-    public String getSession(String userId) {
-        return redisTemplate.opsForValue().get(USER_SESSION_PREFIX + userId);
-    }
-
-    public void removeSession(String userId) {
-        redisTemplate.delete(USER_SESSION_PREFIX + userId);
-    }
-
-    public boolean isSessionValid(String userId, String sessionId) {
-        String storedSessionId = getSession(userId);
-        return sessionId != null && sessionId.equals(storedSessionId);
-    }
-
     // 세션 ID로 유효성 검증
     public boolean isValidSession(String sessionId) {
         if (sessionId == null) return false;
@@ -84,11 +71,5 @@ public class SessionService {
             return true;
         }
         return false;
-    }
-
-    // 세션 갱신 (사용자 ID 기반) - 기존 메서드
-    public void refreshSession(String userId) {
-        String key = USER_SESSION_PREFIX + userId;
-        redisTemplate.expire(key, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
     }
 }
