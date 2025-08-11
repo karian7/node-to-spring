@@ -1,6 +1,7 @@
 package com.example.chatapp.websocket.socketio;
 
 import com.corundumstudio.socketio.AuthorizationListener;
+import com.corundumstudio.socketio.AuthorizationResult;
 import com.corundumstudio.socketio.HandshakeData;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
@@ -10,7 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
+import java.util.Map;
 
 /**
  * Socket.IO Authorization Handler
@@ -25,24 +26,26 @@ public class SocketIOAuthHandler implements AuthorizationListener {
     private final SessionService sessionService;
     private final UserRepository userRepository;
 
+
     @Override
-    public boolean isAuthorized(HandshakeData data) {
+    public AuthorizationResult getAuthorizationResult(HandshakeData data) {
         try {
             // Extract auth data from handshake (similar to Node.js backend)
-            String token = extractAuthToken(data);
-            String sessionId = extractAuthSessionId(data);
+            var authToken = (Map<?, ?>) data.getAuthToken();
+            String token = authToken.get("token") != null ? authToken.get("token").toString() : null;
+            String sessionId = authToken.get("sessionId") != null ? authToken.get("sessionId").toString() : null;
 
             if (token == null || sessionId == null) {
                 log.warn("Missing authentication credentials in Socket.IO handshake - token: {}, sessionId: {}",
                     token != null, sessionId != null);
-                return false;
+                return AuthorizationResult.FAILED_AUTHORIZATION;
             }
 
             // Validate JWT token and extract user ID (same as Node.js backend)
             String userId = jwtUtil.extractSubject(token);
             if (userId == null) {
                 log.warn("Invalid JWT token - no user ID found");
-                return false;
+                return AuthorizationResult.FAILED_AUTHORIZATION;
             }
 
             // Validate session (same as Node.js backend's SessionService.validateSession)
@@ -51,14 +54,14 @@ public class SocketIOAuthHandler implements AuthorizationListener {
 
             if (!validationResult.isValid()) {
                 log.error("Session validation failed: {}", validationResult.getMessage());
-                return false;
+                return AuthorizationResult.FAILED_AUTHORIZATION;
             }
 
             // Load user from database (same as Node.js backend's User.findById)
             User user = userRepository.findById(userId).orElse(null);
             if (user == null) {
                 log.error("User not found: {}", userId);
-                return false;
+                return AuthorizationResult.FAILED_AUTHORIZATION;
             }
 
             // Store user info in handshake data for later use (similar to Node.js socket.user)
@@ -69,49 +72,11 @@ public class SocketIOAuthHandler implements AuthorizationListener {
             data.getHttpHeaders().set("socket.user.profileImage", user.getProfileImage());
 
             log.info("Socket.IO connection authorized for user: {} ({})", user.getName(), userId);
-            return true;
+            return AuthorizationResult.SUCCESSFUL_AUTHORIZATION;
 
         } catch (Exception e) {
             log.error("Socket.IO authentication error: {}", e.getMessage(), e);
-            return false;
+            return AuthorizationResult.FAILED_AUTHORIZATION;
         }
-    }
-
-    /**
-     * Extract token from auth object (similar to Node.js: socket.handshake.auth.token)
-     */
-    private String extractAuthToken(HandshakeData data) {
-        // Try to get from query parameters first (auth.token)
-        List<String> tokenParams = data.getUrlParams().get("token");
-        if (tokenParams != null && !tokenParams.isEmpty()) {
-            return tokenParams.get(0);
-        }
-
-        // Try to get from HTTP headers as fallback
-        String authHeader = data.getHttpHeaders().get("Authorization");
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            return authHeader.substring(7);
-        }
-
-        return null;
-    }
-
-    /**
-     * Extract sessionId from auth object (similar to Node.js: socket.handshake.auth.sessionId)
-     */
-    private String extractAuthSessionId(HandshakeData data) {
-        // Try to get from query parameters first (auth.sessionId)
-        List<String> sessionParams = data.getUrlParams().get("sessionId");
-        if (sessionParams != null && !sessionParams.isEmpty()) {
-            return sessionParams.get(0);
-        }
-
-        // Try to get from HTTP headers as fallback
-        String sessionHeader = data.getHttpHeaders().get("X-Session-Id");
-        if (sessionHeader != null) {
-            return sessionHeader;
-        }
-
-        return null;
     }
 }
