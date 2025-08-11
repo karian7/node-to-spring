@@ -1,12 +1,13 @@
 package com.example.chatapp.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+@RequiredArgsConstructor
 @Service
 public class SessionService {
 
@@ -14,8 +15,7 @@ public class SessionService {
     private static final String SESSION_USER_PREFIX = "session-user:";
     private static final long SESSION_TIMEOUT_MINUTES = 30;
 
-    @Autowired
-    private RedisTemplate<String, String> redisTemplate;
+    private final RedisTemplate<String, String> redisTemplate;
 
     public String createSession(String userId) {
         String sessionId = UUID.randomUUID().toString();

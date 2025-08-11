@@ -5,7 +5,7 @@ import com.example.chatapp.model.*;
 import com.example.chatapp.repository.*;
 import com.example.chatapp.service.FileService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -20,24 +20,16 @@ import java.security.Principal;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/rooms/{roomId}/messages")
 public class MessageController {
 
-    @Autowired
-    private MessageRepository messageRepository;
-
-    @Autowired
-    private RoomRepository roomRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private FileRepository fileRepository;
-
-    @Autowired
-    private FileService fileService;
+    private final MessageRepository messageRepository;
+    private final RoomRepository roomRepository;
+    private final UserRepository userRepository;
+    private final FileRepository fileRepository;
+    private final FileService fileService;
 
     @GetMapping
     public ResponseEntity<Page<MessageResponse>> getMessagesForRoom(@PathVariable String roomId, Pageable pageable) {

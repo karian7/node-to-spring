@@ -7,7 +7,7 @@ import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.FileService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -20,18 +20,14 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.io.IOException;
 import java.security.Principal;
 
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
 
-    @Autowired
-    private FileService fileService;
-
-    @Autowired
-    private FileRepository fileRepository;
-
-    @Autowired
-    private UserRepository userRepository;
+    private final FileService fileService;
+    private final FileRepository fileRepository;
+    private final UserRepository userRepository;
 
     @PostMapping("/upload")
     public ResponseEntity<FileUploadResponse> uploadFile(@RequestParam("file") MultipartFile file, Principal principal) {
