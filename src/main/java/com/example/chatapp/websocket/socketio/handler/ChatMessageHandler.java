@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Component
@@ -29,11 +30,11 @@ public class ChatMessageHandler {
     private final AiService aiService;
 
     @Transactional
+    @SuppressWarnings("rawtypes")
     public DataListener<Map> getListener() {
         return (client, data, ackSender) -> {
             try {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
 
                 if (userId == null) {
                     client.sendEvent("error", Map.of(
@@ -100,15 +101,11 @@ public class ChatMessageHandler {
                     type, roomId, userId, fileData != null, aiMentions.size());
 
                 // 메시지 타입별 처리 (JavaScript 버전과 동일한 switch 구조)
-                switch (type != null ? type : "text") {
-                    case "file":
-                        message = handleFileMessage(roomId, userId, content, fileData);
-                        break;
-                    case "text":
-                    default:
-                        message = handleTextMessage(roomId, userId, content);
-                        break;
-                }
+                message = switch (type != null ? type : "text") {
+                    case "file" -> handleFileMessage(roomId, userId, content, fileData);
+                    case "text" -> handleTextMessage(roomId, userId, content);
+                    default -> handleTextMessage(roomId, userId, content);
+                };
 
                 if (message == null) {
                     return; // 에러는 각 핸들러에서 처리
@@ -119,14 +116,13 @@ public class ChatMessageHandler {
 
                 // sender와 file 정보 populate (JavaScript 버전과 동일)
                 if (savedMessage.getFileId() != null) {
-                    com.example.chatapp.model.File file = fileRepository.findById(savedMessage.getFileId()).orElse(null);
-                    if (file != null) {
+                    fileRepository.findById(savedMessage.getFileId()).ifPresent(file -> {
                         savedMessage.setMetadata(Message.FileMetadata.builder()
                             .fileType(file.getMimetype())
                             .fileSize(file.getSize())
                             .originalName(file.getOriginalname())
                             .build());
-                    }
+                    });
                 }
 
                 // JavaScript 버전과 동일한 구조로 브로드캐스트
@@ -206,7 +202,7 @@ public class ChatMessageHandler {
         if (content == null) return mentions;
 
         // JavaScript 버전과 동일한 AI 타입들
-        String[] aiTypes = {"wayneAI", "consultingAI", "gpt", "claude", "gemini"};
+        String[] aiTypes = {"wayneAI", "consultingAI"};
 
         for (String aiType : aiTypes) {
             if (content.contains("@" + aiType)) {
@@ -260,22 +256,23 @@ public class ChatMessageHandler {
     }
 
     private void handleAIResponse(String roomId, String aiType, String query) {
-        // AI 스트리밍 세션 생성
-        String sessionId = java.util.UUID.randomUUID().toString();
+        // AI 스트리밍 세션 생성 - Node.js 버전과 동일한 messageId 형식
+        String messageId = aiType + "-" + System.currentTimeMillis();
+        LocalDateTime timestamp = LocalDateTime.now();
 
-        log.info("AI response requested - room: {}, aiType: {}, query: {}, sessionId: {}",
-            roomId, aiType, query, sessionId);
+        log.info("AI response started - messageId: {}, room: {}, aiType: {}, query: {}",
+            messageId, roomId, aiType, query);
 
-        // AI 스트리밍 시작 알림 (JavaScript 버전과 동일)
+        // AI 스트리밍 시작 알림 (Node.js 버전과 동일한 이벤트명과 구조)
         socketIOServer.getRoomOperations("room:" + roomId)
-                .sendEvent("ai.stream.start", Map.of(
-                    "sessionId", sessionId,
+                .sendEvent("aiMessageStart", Map.of(
+                    "messageId", messageId,
                     "aiType", aiType,
-                    "timestamp", LocalDateTime.now()
+                    "timestamp", timestamp
                 ));
 
         // 실제 AI 서비스 호출 (비동기)
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
+        CompletableFuture.runAsync(() -> {
             try {
                 // AI 타입에 따른 적절한 AiType enum 변환
                 AiType aiTypeEnum = convertToAiType(aiType);
@@ -283,58 +280,97 @@ public class ChatMessageHandler {
                 if (aiTypeEnum == null) {
                     log.warn("Unknown AI type: {}", aiType);
                     socketIOServer.getRoomOperations("room:" + roomId)
-                            .sendEvent("ai.stream.error", Map.of(
-                                "sessionId", sessionId,
+                            .sendEvent("aiMessageError", Map.of(
+                                "messageId", messageId,
                                 "error", "지원하지 않는 AI 타입입니다: " + aiType,
-                                "timestamp", LocalDateTime.now()
+                                "aiType", aiType
                             ));
                     return;
                 }
 
                 // 스트리밍 응답 생성
+                StringBuilder accumulatedContent = new StringBuilder();
+
                 aiService.generateStreamingResponse(aiTypeEnum, query,
-                    // 스트리밍 청크 콜백
+                    // 스트리밍 청크 콜백 - Node.js 버전과 동일한 구조
                     chunk -> {
+                        accumulatedContent.append(chunk);
                         socketIOServer.getRoomOperations("room:" + roomId)
-                                .sendEvent("ai.stream.chunk", Map.of(
-                                    "sessionId", sessionId,
-                                    "content", chunk,
-                                    "timestamp", LocalDateTime.now()
+                                .sendEvent("aiMessageChunk", Map.of(
+                                    "messageId", messageId,
+                                    "currentChunk", chunk,
+                                    "fullContent", accumulatedContent.toString(),
+                                    "isCodeBlock", false, // TODO: 코드 블록 감지 로직 추가 필요
+                                    "timestamp", LocalDateTime.now(),
+                                    "aiType", aiType,
+                                    "isComplete", false
                                 ));
                     },
-                    // 스트리밍 완료 콜백
+                    // 스트리밍 완료 콜백 - Node.js 버전과 동일한 구조
                     () -> {
-                        socketIOServer.getRoomOperations("room:" + roomId)
-                                .sendEvent("ai.stream.complete", Map.of(
-                                    "sessionId", sessionId,
-                                    "timestamp", LocalDateTime.now()
-                                ));
-                        log.debug("AI streaming completed for session: {}", sessionId);
+                        try {
+                            // AI 메시지 저장 (Node.js 버전과 동일)
+                            Message aiMessage = new Message();
+                            aiMessage.setRoomId(roomId);
+                            aiMessage.setContent(accumulatedContent.toString());
+                            aiMessage.setType(MessageType.AI);
+                            aiMessage.setAiType(convertToAiType(aiType));
+                            aiMessage.setTimestamp(LocalDateTime.now());
+                            aiMessage.setReactions(new java.util.HashMap<>());
+
+                            // 메타데이터 설정
+                            Message.AiMetadata metadata = Message.AiMetadata.builder()
+                                .query(query)
+                                .generationTime(System.currentTimeMillis() - timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
+                                .build();
+                            aiMessage.setAiMetadata(metadata);
+
+                            Message savedMessage = messageRepository.save(aiMessage);
+
+                            socketIOServer.getRoomOperations("room:" + roomId)
+                                    .sendEvent("aiMessageComplete", Map.of(
+                                        "messageId", messageId,
+                                        "_id", savedMessage.getId(),
+                                        "content", accumulatedContent.toString(),
+                                        "aiType", aiType,
+                                        "timestamp", LocalDateTime.now(),
+                                        "isComplete", true,
+                                        "query", query,
+                                        "reactions", new java.util.HashMap<>()
+                                    ));
+
+                            log.debug("AI streaming completed for messageId: {}", messageId);
+                        } catch (Exception e) {
+                            log.error("Error saving AI message for messageId: {}", messageId, e);
+                            socketIOServer.getRoomOperations("room:" + roomId)
+                                    .sendEvent("aiMessageError", Map.of(
+                                        "messageId", messageId,
+                                        "error", "AI 메시지 저장 중 오류가 발생했습니다.",
+                                        "aiType", aiType
+                                    ));
+                        }
                     }
                 );
 
             } catch (Exception e) {
-                log.error("AI streaming error for session: {}", sessionId, e);
+                log.error("AI streaming error for messageId: {}", messageId, e);
                 socketIOServer.getRoomOperations("room:" + roomId)
-                        .sendEvent("ai.stream.error", Map.of(
-                            "sessionId", sessionId,
+                        .sendEvent("aiMessageError", Map.of(
+                            "messageId", messageId,
                             "error", e.getMessage() != null ? e.getMessage() : "AI 응답 생성 중 오류가 발생했습니다.",
-                            "timestamp", LocalDateTime.now()
+                            "aiType", aiType
                         ));
             }
         });
     }
 
     // AI 타입 문자열을 AiType enum으로 변환
-    private com.example.chatapp.model.AiType convertToAiType(String aiTypeString) {
+    private AiType convertToAiType(String aiTypeString) {
         if (aiTypeString == null) return null;
 
         return switch (aiTypeString.toLowerCase()) {
-            case "wayneai" -> com.example.chatapp.model.AiType.GPT; // wayneAI는 GPT로 매핑
-            case "consultingai" -> com.example.chatapp.model.AiType.CLAUDE; // consultingAI는 Claude로 매핑
-            case "gpt" -> com.example.chatapp.model.AiType.GPT;
-            case "claude" -> com.example.chatapp.model.AiType.CLAUDE;
-            case "gemini" -> com.example.chatapp.model.AiType.GEMINI;
+            case "wayneai" -> AiType.WAYNE_AI; // wayneAI는 GPT로 매핑
+            case "consultingai" -> AiType.CONSULTING_AI; // consultingAI는 Claude로 매핑
             default -> null;
         };
     }

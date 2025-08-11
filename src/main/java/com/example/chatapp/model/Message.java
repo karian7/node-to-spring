@@ -85,7 +85,18 @@ public class Message {
         return readers.size();
     }
 
+    // AI 메타데이터 getter/setter
+    public AiMetadata getAiMetadata() {
+        return aiMetadata;
+    }
+
+    public void setAiMetadata(AiMetadata aiMetadata) {
+        this.aiMetadata = aiMetadata;
+    }
+
     private FileMetadata metadata;
+
+    private AiMetadata aiMetadata;
 
     @Data
     @Builder
@@ -95,5 +106,16 @@ public class Message {
         private String fileType;
         private long fileSize;
         private String originalName;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AiMetadata {
+        private String query;
+        private long generationTime;
+        private Integer completionTokens;
+        private Integer totalTokens;
     }
 }

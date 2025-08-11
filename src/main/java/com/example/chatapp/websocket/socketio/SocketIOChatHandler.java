@@ -11,7 +11,6 @@ import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
-import com.example.chatapp.service.AiService;
 import com.example.chatapp.websocket.socketio.handler.ChatMessageHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -21,13 +20,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -45,15 +42,12 @@ public class SocketIOChatHandler {
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final FileRepository fileRepository;
-    private final AiService aiService;
     private final ChatMessageHandler chatMessageHandler;
 
     // Online users management (similar to Node.js connectedUsers)
     private final Map<String, String> connectedUsers = new ConcurrentHashMap<>(); // userId -> socketId
     private final Map<String, SocketIOClient> socketClients = new ConcurrentHashMap<>(); // socketId -> client
 
-    // AI 스트리밍 세션 관리 (노드 버전과 동일)
-    private final Map<String, AiStreamingSession> streamingSessions = new ConcurrentHashMap<>();
     private final Map<String, Boolean> messageQueues = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageLoadRetries = new ConcurrentHashMap<>();
 
@@ -74,7 +68,7 @@ public class SocketIOChatHandler {
         socketIOServer.addEventListener("chatMessage", Map.class, chatMessageHandler.getListener());
         socketIOServer.addEventListener("joinRoom", RoomIdRequest.class, onJoinRoom());
         socketIOServer.addEventListener("leaveRoom", RoomIdRequest.class, onLeaveRoom());
-        socketIOServer.addEventListener("fetchPreviousMessages", FetchMessagesRequest.class, onFetchPreviousMessages());
+        socketIOServer.addEventListener("fetchPreviousMessages", FetchMessagesRequest.class, onFetchPreviousMessagesWithRetry());
         socketIOServer.addEventListener("markMessagesAsRead", MarkAsReadRequest.class, onMarkMessagesAsRead());
         socketIOServer.addEventListener("messageReaction", MessageReactionRequest.class, onMessageReaction());
 
@@ -169,7 +163,6 @@ public class SocketIOChatHandler {
     }
 
 
-    @Transactional
     public DataListener<RoomIdRequest> onJoinRoom() {
         return (client, data, ackSender) -> {
             try {
@@ -209,7 +202,6 @@ public class SocketIOChatHandler {
         };
     }
 
-    @Transactional
     public DataListener<RoomIdRequest> onLeaveRoom() {
         return (client, data, ackSender) -> {
             try {
@@ -242,55 +234,63 @@ public class SocketIOChatHandler {
         };
     }
 
-    private DataListener<FetchMessagesRequest> onFetchPreviousMessages() {
+    // 향상된 메시지 로드 기능 (노드 버전과 동일)
+    private DataListener<FetchMessagesRequest> onFetchPreviousMessagesWithRetry() {
         return (client, data, ackSender) -> {
             try {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                final int BATCH_SIZE = 30;
+                String queueKey = data.roomId() + ":" + userId;
 
-                // Check room access
-                Room room = roomRepository.findById(data.roomId()).orElse(null);
-                if (room == null || !room.getParticipantIds().contains(userId)) {
-                    client.sendEvent("error", "채팅방 접근 권한이 없습니다.");
+                // 이미 로드 중인지 확인
+                if (messageQueues.get(queueKey) != null && messageQueues.get(queueKey)) {
+                    log.debug("Message load skipped - already loading for user {} in room {}", userId, data.roomId());
                     return;
                 }
 
-                // Create pageable
-                Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").descending());
-                LocalDateTime before = data.before() != null ? data.before() : LocalDateTime.now();
+                // 권한 체크
+                Room room = roomRepository.findById(data.roomId()).orElse(null);
+                if (room == null || !room.getParticipantIds().contains(userId)) {
+                    client.sendEvent("error", Map.of(
+                            "type", "LOAD_ERROR",
+                            "message", "채팅방 접근 권한이 없습니다."
+                    ));
+                    return;
+                }
 
-                // Fetch messages
-                Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(
-                        data.roomId(), before, pageable);
+                messageQueues.put(queueKey, true);
+                client.sendEvent("messageLoadStart");
 
-                List<Message> messages = messagePage.getContent();
+                // 재시도 로직으로 메시지 로드
+                loadMessagesWithRetry(client, data.roomId(), data.before(), queueKey)
+                        .thenAccept(result -> {
+                            client.sendEvent("previousMessagesLoaded", result);
 
-                // Fetch users for messages
-                Set<String> senderIds = messages.stream()
-                        .map(Message::getSenderId)
-                        .filter(java.util.Objects::nonNull)
-                        .collect(Collectors.toSet());
-
-                Map<String, User> userMap = userRepository.findAllById(senderIds).stream()
-                        .collect(Collectors.toMap(User::getId, user -> user));
-
-                // Map to response
-                List<MessageResponse> messageResponses = messages.stream()
-                        .map(message -> mapToMessageResponse(message, userMap.get(message.getSenderId())))
-                        .collect(Collectors.toList());
-
-                FetchMessagesResponse response = new FetchMessagesResponse(
-                    messageResponses,
-                    messagePage.hasNext(),
-                    !messages.isEmpty() ? messages.get(0).getTimestamp() : null
-                );
-
-                // Send response to client
-                client.sendEvent("messages.history", response);
+                            // 딜레이 후 큐 정리
+                            new Thread(() -> {
+                                try {
+                                    Thread.sleep(LOAD_DELAY);
+                                    messageQueues.remove(queueKey);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }).start();
+                        })
+                        .exceptionally(throwable -> {
+                            log.error("Message load failed for user {} in room {}", userId, data.roomId(), throwable);
+                            client.sendEvent("error", Map.of(
+                                    "type", "LOAD_ERROR",
+                                    "message", throwable.getMessage() != null ? throwable.getMessage() : "이전 메시지를 불러오는 중 오류가 발생했습니다."
+                            ));
+                            messageQueues.remove(queueKey);
+                            return null;
+                        });
 
             } catch (Exception e) {
                 log.error("Error handling fetchPreviousMessages", e);
-                client.sendEvent("error", "메시지 로드 중 오류가 발생했습니다.");
+                client.sendEvent("error", Map.of(
+                        "type", "LOAD_ERROR",
+                        "message", "메시지 로드 중 오류가 발생했습니다."
+                ));
             }
         };
     }
@@ -373,68 +373,8 @@ public class SocketIOChatHandler {
         };
     }
 
-    // 향상된 메시지 로드 기능 (노드 버전과 동일)
-    private DataListener<FetchMessagesRequest> onFetchPreviousMessagesWithRetry() {
-        return (client, data, ackSender) -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String queueKey = data.roomId() + ":" + userId;
-
-                // 이미 로드 중인지 확인
-                if (messageQueues.get(queueKey) != null && messageQueues.get(queueKey)) {
-                    log.debug("Message load skipped - already loading for user {} in room {}", userId, data.roomId());
-                    return;
-                }
-
-                // 권한 체크
-                Room room = roomRepository.findById(data.roomId()).orElse(null);
-                if (room == null || !room.getParticipantIds().contains(userId)) {
-                    client.sendEvent("error", Map.of(
-                        "type", "LOAD_ERROR",
-                        "message", "채팅방 접근 권한이 없습니다."
-                    ));
-                    return;
-                }
-
-                messageQueues.put(queueKey, true);
-                client.sendEvent("messageLoadStart");
-
-                // 재시도 로직으로 메시지 로드
-                loadMessagesWithRetry(client, data.roomId(), data.before(), queueKey)
-                    .thenAccept(result -> {
-                        client.sendEvent("previousMessagesLoaded", result);
-
-                        // 딜레이 후 큐 정리
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(LOAD_DELAY);
-                                messageQueues.remove(queueKey);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }).start();
-                    })
-                    .exceptionally(throwable -> {
-                        log.error("Message load failed for user {} in room {}", userId, data.roomId(), throwable);
-                        client.sendEvent("error", Map.of(
-                            "type", "LOAD_ERROR",
-                            "message", throwable.getMessage() != null ? throwable.getMessage() : "이전 메시지를 불러오는 중 오류가 발생했습니다."
-                        ));
-                        messageQueues.remove(queueKey);
-                        return null;
-                    });
-
-            } catch (Exception e) {
-                log.error("Error handling fetchPreviousMessages", e);
-                client.sendEvent("error", Map.of(
-                    "type", "LOAD_ERROR",
-                    "message", "메시지 로드 중 오류가 발생했습니다."
-                ));
-            }
-        };
-    }
-
     // 강제 로그아웃 처리 (노드 버전과 동일) - Object 타입으로 수정
+    @SuppressWarnings("rawtypes")
     private DataListener<Map> onForceLogin() {
         return (client, data, ackSender) -> {
             try {
@@ -744,96 +684,6 @@ public class SocketIOChatHandler {
         }
     }
 
-    private void handleMentions(List<String> mentions, MessageResponse messageResponse, Room room) {
-        // 멘션 처리 로직
-        mentions.forEach(mentionedUserId -> {
-            SocketIOClient mentionedClient = socketClients.get(connectedUsers.get(mentionedUserId));
-            if (mentionedClient != null) {
-                mentionedClient.sendEvent("mention", Map.of(
-                    "message", messageResponse,
-                    "room", room,
-                    "type", "user_mention"
-                ));
-            }
-        });
-    }
-
-    private void handleAiMentions(Message message) {
-        // AI 멘션 처리 로직 (실제 AI 서비스 연동 필요)
-        if (message.getContent() != null) {
-            List<AiType> aiMentions = extractAiMentions(message.getContent());
-            aiMentions.forEach(aiType -> {
-                try {
-                    handleAiResponse(message.getRoomId(), aiType, message.getContent());
-                } catch (Exception e) {
-                    log.error("Error handling AI mention", e);
-                }
-            });
-        }
-    }
-
-    private List<AiType> extractAiMentions(String content) {
-        List<AiType> mentions = new java.util.ArrayList<>();
-
-        if (content.contains("@gpt")) mentions.add(AiType.GPT);
-        if (content.contains("@claude")) mentions.add(AiType.CLAUDE);
-        if (content.contains("@gemini")) mentions.add(AiType.GEMINI);
-
-        return mentions;
-    }
-
-    private void handleAiResponse(String roomId, AiType aiType, String query) {
-        // AI 스트리밍 세션 생성
-        String sessionId = java.util.UUID.randomUUID().toString();
-        AiStreamingSession session = new AiStreamingSession(
-            sessionId, roomId, aiType, LocalDateTime.now()
-        );
-        streamingSessions.put(sessionId, session);
-
-        // AI 스트리밍 시작 알림
-        socketIOServer.getRoomOperations("room:" + roomId)
-                .sendEvent("ai.stream.start", Map.of(
-                    "sessionId", sessionId,
-                    "aiType", aiType.name(),
-                    "timestamp", LocalDateTime.now()
-                ));
-
-        // 실제 AI 서비스 호출 (비동기)
-        CompletableFuture.runAsync(() -> {
-            try {
-                aiService.generateStreamingResponse(aiType, query,
-                    chunk -> {
-                        // 스트리밍 청크 전송
-                        socketIOServer.getRoomOperations("room:" + roomId)
-                                .sendEvent("ai.stream.chunk", Map.of(
-                                    "sessionId", sessionId,
-                                    "content", chunk,
-                                    "timestamp", LocalDateTime.now()
-                                ));
-                    },
-                    () -> {
-                        // 스트리밍 완료
-                        streamingSessions.remove(sessionId);
-                        socketIOServer.getRoomOperations("room:" + roomId)
-                                .sendEvent("ai.stream.complete", Map.of(
-                                    "sessionId", sessionId,
-                                    "timestamp", LocalDateTime.now()
-                                ));
-                    }
-                );
-            } catch (Exception e) {
-                log.error("AI streaming error", e);
-                streamingSessions.remove(sessionId);
-                socketIOServer.getRoomOperations("room:" + roomId)
-                        .sendEvent("ai.stream.error", Map.of(
-                            "sessionId", sessionId,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                        ));
-            }
-        });
-    }
-
     private MessageResponse mapToMessageResponse(Message message, User sender) {
         MessageResponse.MessageResponseBuilder builder = MessageResponse.builder()
                 .id(message.getId())
@@ -855,16 +705,13 @@ public class SocketIOChatHandler {
         }
 
         if (message.getFileId() != null) {
-            com.example.chatapp.model.File file = fileRepository.findById(message.getFileId()).orElse(null);
-            if (file != null) {
-                builder.file(FileResponse.builder()
-                        .id(file.getId())
-                        .filename(file.getFilename())
-                        .originalname(file.getOriginalname())
-                        .mimetype(file.getMimetype())
-                        .size(file.getSize())
-                        .build());
-            }
+            fileRepository.findById(message.getFileId()).ifPresent(file -> builder.file(FileResponse.builder()
+                    .id(file.getId())
+                    .filename(file.getFilename())
+                    .originalname(file.getOriginalname())
+                    .mimetype(file.getMimetype())
+                    .size(file.getSize())
+                    .build()));
         }
 
         if (message.getMetadata() != null) {
@@ -872,32 +719,5 @@ public class SocketIOChatHandler {
         }
 
         return builder.build();
-    }
-
-    // AI 스트리밍 세션 클래스
-    private static class AiStreamingSession {
-        private final String sessionId;
-        private final String roomId;
-        private final AiType aiType;
-        private final LocalDateTime startTime;
-        private StringBuilder content = new StringBuilder();
-
-        public AiStreamingSession(String sessionId, String roomId, AiType aiType, LocalDateTime startTime) {
-            this.sessionId = sessionId;
-            this.roomId = roomId;
-            this.aiType = aiType;
-            this.startTime = startTime;
-        }
-
-        // getters
-        public String getSessionId() { return sessionId; }
-        public String getRoomId() { return roomId; }
-        public AiType getAiType() { return aiType; }
-        public LocalDateTime getStartTime() { return startTime; }
-        public String getContent() { return content.toString(); }
-
-        public void appendContent(String chunk) {
-            content.append(chunk);
-        }
     }
 }

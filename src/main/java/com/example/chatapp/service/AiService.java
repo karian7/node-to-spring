@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 @Service
 public class AiService {
@@ -62,12 +63,12 @@ public class AiService {
 
     // 노드 버전과 호환되는 스트리밍 응답 메서드 추가
     public void generateStreamingResponse(com.example.chatapp.model.AiType aiType, String query,
-                                        java.util.function.Consumer<String> onChunk,
+                                        Consumer<String> onChunk,
                                         Runnable onComplete) {
         try {
             String persona = mapAiTypeToPersona(aiType);
             generateResponse(query, persona)
-                .doOnNext(onChunk::accept)
+                .doOnNext(onChunk)
                 .doOnComplete(onComplete)
                 .subscribe();
         } catch (Exception e) {
@@ -77,9 +78,6 @@ public class AiService {
 
     private String mapAiTypeToPersona(com.example.chatapp.model.AiType aiType) {
         return switch (aiType) {
-            case GPT -> "gpt-assistant";
-            case CLAUDE -> "claude-assistant";
-            case GEMINI -> "gemini-assistant";
             case WAYNE_AI -> "wayneAI";
             case CONSULTING_AI -> "consultingAI";
         };
