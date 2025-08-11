@@ -66,7 +66,7 @@ public class UserController {
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
 
             // 파일 업로드 처리
-            String profileImageUrl = fileService.uploadProfileImage(file, user.getId());
+            String profileImageUrl = fileService.storeFile(file);
 
             // 사용자 프로필 이미지 URL 업데이트
             user.setProfileImage(profileImageUrl);
