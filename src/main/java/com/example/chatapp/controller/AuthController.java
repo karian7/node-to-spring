@@ -1,6 +1,8 @@
 package com.example.chatapp.controller;
 
-import com.example.chatapp.dto.*;
+import com.example.chatapp.dto.ApiResponse;
+import com.example.chatapp.dto.LoginRequest;
+import com.example.chatapp.dto.RegisterRequest;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.SessionService;
@@ -19,11 +21,13 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 @RequiredArgsConstructor
 @RestController
@@ -80,7 +84,7 @@ public class AuthController {
                     sessionService.createSession(user.getId(), metadata);
 
             // Generate JWT token with session ID
-            String token = jwtUtil.generateToken(user.getEmail());
+            String token = jwtUtil.generateToken(sessionInfo.getSessionId(), user.getName());
 
             // Prepare response data
             Map<String, Object> responseData = new HashMap<>();
@@ -124,9 +128,7 @@ public class AuthController {
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
-            // Get user details
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            User user = userRepository.findByEmail(userDetails.getUsername())
+            User user = userRepository.findByEmail(loginRequest.getEmail())
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
             // Check for existing session
@@ -147,7 +149,8 @@ public class AuthController {
                     sessionService.createSession(user.getId(), metadata);
 
             // Generate JWT token
-            String token = jwtUtil.generateToken(user.getEmail());
+            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+            String token = jwtUtil.generateToken(user.getEmail(), userDetails.getUsername());
 
             // Prepare response data
             Map<String, Object> responseData = new HashMap<>();

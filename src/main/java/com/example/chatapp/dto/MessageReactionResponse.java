@@ -15,10 +15,10 @@ public class MessageReactionResponse {
     private String message;
     private Map<String, Set<String>> reactions;
 
-    // 기존 생성자와의 호환성을 위한 추가 생성자
+    // ChatController에서 사용하는 생성자 (String messageId, Map reactions)
     public MessageReactionResponse(String messageId, Map<String, Set<String>> reactions) {
         this.success = true;
-        this.message = messageId;
+        this.message = "Reaction updated for message: " + messageId;
         this.reactions = reactions;
     }
 }

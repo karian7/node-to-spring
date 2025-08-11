@@ -55,7 +55,8 @@ public class MessageService {
 
             // 비동기로 읽음 상태 업데이트
             if (!messages.isEmpty() && userId != null) {
-                CompletableFuture.runAsync(() -> markMessagesAsRead(messages, userId));
+                final List<Message> messagesAsRead = messages;
+                CompletableFuture.runAsync(() -> markMessagesAsRead(messagesAsRead, userId));
             }
 
             LocalDateTime oldestTimestamp = messages.isEmpty() ? null : messages.get(0).getTimestamp();

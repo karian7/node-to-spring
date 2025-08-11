@@ -1,5 +1,6 @@
 package com.example.chatapp.dto;
 
+import com.example.chatapp.model.AiType;
 import com.example.chatapp.model.MessageType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,6 +17,7 @@ public class SendMessageRequest {
     private String content;
     private MessageType type;
     private String fileId;
-    private String roomId; // 추가
-    private List<String> mentions; // 추가
+    private String roomId;
+    private List<String> mentions;
+    private AiType aiType; // 추가
 }
