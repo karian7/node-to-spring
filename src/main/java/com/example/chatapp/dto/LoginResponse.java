@@ -9,9 +9,8 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserProfileResponse {
-    private String id;
-    private String name;
-    private String email;
-    private String profileImage;
+public class LoginResponse {
+    private boolean success;
+    private String token;
+    private String sessionId;
 }

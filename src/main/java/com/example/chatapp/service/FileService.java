@@ -66,4 +66,43 @@ public class FileService {
             throw new RuntimeException("File not found " + fileName, ex);
         }
     }
+
+    public String uploadProfileImage(MultipartFile file, String userId) {
+        // 프로필 이미지 파일 검증
+        if (file.isEmpty()) {
+            throw new RuntimeException("업로드할 파일이 없습니다.");
+        }
+
+        // 이미지 파일 타입 검증
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new RuntimeException("이미지 파일만 업로드 가능합니다.");
+        }
+
+        // 파일 크기 검증 (5MB 제한)
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new RuntimeException("파일 크기는 5MB를 초과할 수 없습니다.");
+        }
+
+        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
+        String fileExtension = "";
+        try {
+            fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
+        } catch (Exception e) {
+            fileExtension = ".jpg"; // 기본 확장자
+        }
+
+        // 프로필 이미지 전용 파일명 생성
+        String fileName = "profile_" + userId + "_" + System.currentTimeMillis() + fileExtension;
+
+        try {
+            Path targetLocation = this.fileStorageLocation.resolve(fileName);
+            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+
+            // 파일 접근 URL 반환 (실제 구현에서는 서버 URL 포함)
+            return "/api/files/" + fileName;
+        } catch (IOException ex) {
+            throw new RuntimeException("프로필 이미지 저장에 실패했습니다: " + ex.getMessage(), ex);
+        }
+    }
 }

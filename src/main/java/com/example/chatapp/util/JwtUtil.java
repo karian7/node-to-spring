@@ -69,4 +69,23 @@ public class JwtUtil {
         final String username = extractUsername(token);
         return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
+
+    // 토큰 단일 유효성 검증 (사용자 정보 없이)
+    public Boolean validateToken(String token) {
+        try {
+            return !isTokenExpired(token);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // 토큰에서 사용자명 추출 (getUsernameFromToken 별칭)
+    public String getUsernameFromToken(String token) {
+        return extractUsername(token);
+    }
+
+    // 토큰에서 세션 ID 추출
+    public String getSessionIdFromToken(String token) {
+        return extractClaim(token, claims -> claims.get("sessionId", String.class));
+    }
 }

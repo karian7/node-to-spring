@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
-    private boolean success;
-    private String message;
+public class LogoutRequest {
+    private String sessionId;
 }

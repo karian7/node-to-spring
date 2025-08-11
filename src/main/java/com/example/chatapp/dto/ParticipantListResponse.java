@@ -4,10 +4,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
-    private boolean success;
-    private String message;
+public class ParticipantListResponse {
+    private String roomId;
+    private List<UserSummaryResponse> participants;
 }

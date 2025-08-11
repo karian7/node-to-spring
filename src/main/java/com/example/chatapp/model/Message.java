@@ -1,57 +1,74 @@
 package com.example.chatapp.model;
 
-import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Entity
-@Table(name = "messages")
+@Document(collection = "messages")
 public class Message {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private String id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id", nullable = false)
-    private Room room;
+    @Field("roomId")
+    private String roomId;
 
-    @Column(columnDefinition = "TEXT")
     private String content;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sender_id")
-    private User sender;
+    @Field("senderId")
+    private String senderId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private MessageType type;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "file_id")
-    private File file;
+    @Field("fileId")
+    private String fileId;
 
-    @Enumerated(EnumType.STRING)
     private AiType aiType;
 
-    @ElementCollection
-    @CollectionTable(name = "message_mentions", joinColumns = @JoinColumn(name = "message_id"))
-    @Column(name = "mention")
     private List<String> mentions;
 
-    @CreationTimestamp
-    @Column(updatable = false)
+    @CreatedDate
     private LocalDateTime timestamp;
 
+    @Builder.Default
     private boolean isDeleted = false;
+
+    private Map<String, Set<String>> reactions;
+
+    private List<ReaderInfo> readers;
+
+    private FileMetadata metadata;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReaderInfo {
+        private String userId;
+        private LocalDateTime readAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FileMetadata {
+        private String fileType;
+        private long fileSize;
+        private String originalName;
+    }
 }
