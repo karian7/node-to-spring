@@ -16,7 +16,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Controller;
@@ -297,17 +296,19 @@ public class ChatController {
             );
         }
 
-        return new MessageResponse(
-                message.getId(),
-                message.getRoomId(),
-                message.getContent(),
-                senderSummary,
-                message.getType(),
-                null, // File response can be added later
-                message.getAiType(),
-                message.getMentions(),
-                message.getTimestamp()
-        );
+        return MessageResponse.builder()
+                .id(message.getId())
+                .roomId(message.getRoomId())
+                .content(message.getContent())
+                .sender(senderSummary)
+                .type(message.getType())
+                .file(null) // File response can be added later
+                .aiType(message.getAiType())
+                .mentions(message.getMentions())
+                .timestamp(message.getTimestamp())
+                .readCount(message.getReadCount())
+                .isDeleted(message.isDeleted())
+                .build();
     }
 
     @MessageMapping("/chat.fetchPreviousMessages")
@@ -349,7 +350,7 @@ public class ChatController {
 
         List<Message> messages = messageRepository.findAllById(request.getMessageIds());
 
-        Message.ReaderInfo readerInfo = Message.ReaderInfo.builder()
+        Message.MessageReader readerInfo = Message.MessageReader.builder()
                 .userId(user.getId())
                 .readAt(LocalDateTime.now())
                 .build();

@@ -21,7 +21,6 @@ import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
@@ -160,7 +159,7 @@ public class MessageController {
      * WebSocket 메시지 전송 핸들러
      */
     @MessageMapping("/room/{roomId}/send")
-    public void sendMessage(@DestinationVariable String roomId,
+    public void sendMessageViaWebSocket(@DestinationVariable String roomId,
                            @Payload SendMessageRequest request,
                            Principal principal) {
         try {
@@ -525,11 +524,14 @@ public class MessageController {
 
         return MessageResponse.builder()
                 .id(message.getId())
+                .roomId(message.getRoomId())
                 .content(message.getContent())
                 .sender(senderSummary)
                 .type(message.getType())
+                .aiType(message.getAiType())
+                .mentions(message.getMentions())
                 .timestamp(message.getTimestamp())
-                .readCount(message.getReadCount()) // 읽음 상태 정보 추가
+                .isDeleted(message.isDeleted())
                 .build();
     }
 }

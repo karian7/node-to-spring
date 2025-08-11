@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -14,4 +16,6 @@ public class SendMessageRequest {
     private String content;
     private MessageType type;
     private String fileId;
+    private String roomId; // 추가
+    private List<String> mentions; // 추가
 }
