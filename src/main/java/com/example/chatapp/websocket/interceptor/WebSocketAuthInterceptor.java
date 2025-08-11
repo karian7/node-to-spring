@@ -49,19 +49,25 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                     String username = jwtUtil.extractUsername(jwt);
                     if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                         UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+
                         if (jwtUtil.validateToken(jwt, userDetails)) {
-                            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                                    userDetails, null, userDetails.getAuthorities());
-                            accessor.setUser(authentication);
-                            log.info("Authenticated user {} for WebSocket session", username);
+                            UsernamePasswordAuthenticationToken authToken =
+                                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                            SecurityContextHolder.getContext().setAuthentication(authToken);
+                            accessor.setUser(authToken);
+                            log.info("WebSocket connection authenticated for user: {}", username);
+                        } else {
+                            log.warn("Invalid JWT token for WebSocket connection");
                         }
                     }
                 } catch (Exception e) {
-                    log.error("WebSocket authentication error: {}", e.getMessage());
-                    // Optionally, you could throw an exception here to reject the connection
+                    log.error("WebSocket authentication error: ", e);
                 }
+            } else {
+                log.warn("No JWT token found in WebSocket connection");
             }
         }
+
         return message;
     }
 }

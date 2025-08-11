@@ -51,20 +51,32 @@ public class ChatController {
     @Autowired
     private AiService aiService;
 
+    @Autowired
+    private WebSocketEventListener webSocketEventListener;
+
     @MessageMapping("/chat.sendMessage")
     public void sendMessage(@Payload SendMessageRequest chatMessage, Principal principal) {
         User sender = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
-        roomRepository.findById(chatMessage.getRoomId())
+        Room room = roomRepository.findById(chatMessage.getRoomId())
                 .orElseThrow(() -> new RuntimeException("Room not found"));
+
+        // 채팅방 참여 여부 확인
+        if (!room.getParticipantIds().contains(sender.getId())) {
+            // 권한 없음 에러 전송
+            sendErrorToUser(principal.getName(), "채팅방에 참여하지 않은 사용자입니다.");
+            return;
+        }
 
         Message message = new Message();
         message.setSenderId(sender.getId());
         message.setRoomId(chatMessage.getRoomId());
         message.setContent(chatMessage.getContent());
         message.setType(chatMessage.getType());
+        message.setMentions(chatMessage.getMentions());
         message.setTimestamp(LocalDateTime.now());
+        message.setReactions(new java.util.HashMap<>());
 
         if (chatMessage.getType() == MessageType.FILE) {
             if (chatMessage.getFileId() == null) {
@@ -92,9 +104,45 @@ public class ChatController {
 
         MessageResponse messageResponse = mapToMessageResponse(savedMessage, sender);
 
+        // 채팅방의 모든 참여자에게 메시지 전송
         messagingTemplate.convertAndSend("/topic/rooms/" + chatMessage.getRoomId(), messageResponse);
 
+        // 메시지 배송 확인 전송
+        sendDeliveryConfirmation(principal.getName(), savedMessage.getId(), savedMessage.getTimestamp());
+
+        // 멘션된 사용자들에게 개별 알림 전송
+        if (chatMessage.getMentions() != null && !chatMessage.getMentions().isEmpty()) {
+            sendMentionNotifications(chatMessage.getMentions(), messageResponse, room);
+        }
+
+        // AI 멘션 처리
         handleAiMentions(savedMessage);
+    }
+
+    private void sendErrorToUser(String username, String errorMessage) {
+        ErrorNotification error = new ErrorNotification("MESSAGE_SEND_ERROR", errorMessage, LocalDateTime.now());
+        messagingTemplate.convertAndSendToUser(username, "/topic/errors", error);
+    }
+
+    private void sendDeliveryConfirmation(String username, String messageId, LocalDateTime timestamp) {
+        DeliveryConfirmation confirmation = new DeliveryConfirmation(messageId, timestamp, "DELIVERED");
+        messagingTemplate.convertAndSendToUser(username, "/topic/delivery", confirmation);
+    }
+
+    private void sendMentionNotifications(List<String> mentionedUserIds, MessageResponse message, Room room) {
+        for (String userId : mentionedUserIds) {
+            if (webSocketEventListener.isUserOnline(userId)) {
+                MentionNotification notification = new MentionNotification(
+                        message.getId(),
+                        message.getRoomId(),
+                        room.getName(),
+                        message.getSender().getName(),
+                        message.getContent(),
+                        LocalDateTime.now()
+                );
+                webSocketEventListener.sendToUser(userId, "/topic/mentions", notification);
+            }
+        }
     }
 
     private void handleAiMentions(Message originalMessage) {
