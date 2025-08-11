@@ -4,13 +4,20 @@ import com.example.chatapp.dto.*;
 import com.example.chatapp.model.*;
 import com.example.chatapp.repository.*;
 import com.example.chatapp.service.FileService;
+import com.example.chatapp.service.MessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,6 +27,7 @@ import java.security.Principal;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@Slf4j
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/rooms/{roomId}/messages")
@@ -30,6 +38,163 @@ public class MessageController {
     private final UserRepository userRepository;
     private final FileRepository fileRepository;
     private final FileService fileService;
+    private final MessageService messageService; // 새로 추가된 MessageService
+    private final SimpMessageSendingOperations messagingTemplate;
+
+    /**
+     * Node.js와 동일한 배치 로딩 방식으로 메시지 조회
+     */
+    @GetMapping("/load")
+    public ResponseEntity<ApiResponse<MessageService.MessageLoadResult>> loadMessages(
+            @PathVariable String roomId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime before,
+            @RequestParam(defaultValue = "30") int limit,
+            Principal principal) {
+
+        try {
+            // 방 존재 확인
+            roomRepository.findById(roomId)
+                    .orElseThrow(() -> new RuntimeException("Room not found with id: " + roomId));
+
+            // 사용자 정보 조회
+            User user = userRepository.findByEmail(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            // 배치 로딩으로 메시지 조회
+            MessageService.MessageLoadResult result = messageService.loadMessages(
+                    roomId, before, user.getId(), Math.min(limit, 50)); // 최대 50개로 제한
+
+            return ResponseEntity.ok(ApiResponse.success(result));
+
+        } catch (Exception e) {
+            log.error("Error loading messages for room: {}", roomId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("메시지 로딩 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 메시지를 읽음 상태로 표시
+     */
+    @PostMapping("/{messageId}/read")
+    public ResponseEntity<ApiResponse<Void>> markMessageAsRead(
+            @PathVariable String roomId,
+            @PathVariable String messageId,
+            Principal principal) {
+
+        try {
+            User user = userRepository.findByEmail(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            messageService.markMessageAsRead(messageId, user.getId());
+
+            // WebSocket으로 읽음 상태 알림
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/read",
+                Map.of("messageId", messageId, "userId", user.getId(), "readAt", LocalDateTime.now()));
+
+            return ResponseEntity.ok(ApiResponse.success("메시지를 읽음 상태로 표시했습니다.", null));
+
+        } catch (Exception e) {
+            log.error("Error marking message as read: {}", messageId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("읽음 상태 업데이트 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 방의 모든 메시지를 읽음 상태로 표시
+     */
+    @PostMapping("/read-all")
+    public ResponseEntity<ApiResponse<Void>> markAllMessagesAsRead(
+            @PathVariable String roomId,
+            Principal principal) {
+
+        try {
+            User user = userRepository.findByEmail(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            messageService.markAllMessagesInRoomAsRead(roomId, user.getId());
+
+            // WebSocket으로 전체 읽음 상태 알림
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/read-all",
+                Map.of("userId", user.getId(), "readAt", LocalDateTime.now()));
+
+            return ResponseEntity.ok(ApiResponse.success("모든 메시지를 읽음 상태로 표시했습니다.", null));
+
+        } catch (Exception e) {
+            log.error("Error marking all messages as read in room: {}", roomId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("읽음 상태 업데이트 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 읽지 않은 메시지 수 조회
+     */
+    @GetMapping("/unread-count")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getUnreadMessageCount(
+            @PathVariable String roomId,
+            Principal principal) {
+
+        try {
+            User user = userRepository.findByEmail(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            long unreadCount = messageService.getUnreadMessageCount(roomId, user.getId());
+
+            Map<String, Object> result = Map.of(
+                "roomId", roomId,
+                "unreadCount", unreadCount
+            );
+
+            return ResponseEntity.ok(ApiResponse.success(result));
+
+        } catch (Exception e) {
+            log.error("Error getting unread message count for room: {}", roomId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("읽지 않은 메시지 수 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * WebSocket 메시지 전송 핸들러
+     */
+    @MessageMapping("/room/{roomId}/send")
+    public void sendMessage(@DestinationVariable String roomId,
+                           @Payload SendMessageRequest request,
+                           Principal principal) {
+        try {
+            User sender = userRepository.findByEmail(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            Message message = Message.builder()
+                    .roomId(roomId)
+                    .content(request.getContent())
+                    .senderId(sender.getId())
+                    .type(request.getType() != null ? request.getType() : MessageType.TEXT)
+                    .timestamp(LocalDateTime.now())
+                    .build();
+
+            // 파일이 포함된 경우 처리
+            if (request.getFileId() != null) {
+                message.setFileId(request.getFileId());
+            }
+
+            Message savedMessage = messageService.saveMessage(message);
+
+            // WebSocket으로 실시간 메시지 전송
+            MessageResponse response = mapToMessageResponse(savedMessage);
+            messagingTemplate.convertAndSend("/topic/room/" + roomId + "/messages", response);
+
+            log.debug("Message sent to room: {} by user: {}", roomId, sender.getId());
+
+        } catch (Exception e) {
+            log.error("Error sending message to room: {}", roomId, e);
+            // 에러 메시지를 WebSocket으로 전송
+            messagingTemplate.convertAndSendToUser(principal.getName(), "/queue/errors",
+                Map.of("error", "메시지 전송 중 오류가 발생했습니다."));
+        }
+    }
 
     @GetMapping
     public ResponseEntity<Page<MessageResponse>> getMessagesForRoom(@PathVariable String roomId, Pageable pageable) {
@@ -40,51 +205,6 @@ public class MessageController {
         Page<MessageResponse> messageResponses = messages.map(this::mapToMessageResponse);
 
         return ResponseEntity.ok(messageResponses);
-    }
-
-    private MessageResponse mapToMessageResponse(Message message) {
-        UserSummaryResponse senderSummary = null;
-        if (message.getSenderId() != null) {
-            User sender = userRepository.findById(message.getSenderId()).orElse(null);
-            if (sender != null) {
-                senderSummary = new UserSummaryResponse(
-                        sender.getId(),
-                        sender.getName(),
-                        sender.getEmail(),
-                        sender.getProfileImage()
-                );
-            }
-        }
-
-        FileUploadResponse fileResponse = null;
-        if (message.getFileId() != null) {
-            File file = fileRepository.findById(message.getFileId()).orElse(null);
-            if (file != null) {
-                String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                    .path("/api/files/download/")
-                    .path(file.getFilename())
-                    .toUriString();
-                fileResponse = new FileUploadResponse(
-                        file.getFilename(),
-                        file.getOriginalname(),
-                        file.getMimetype(),
-                        file.getSize(),
-                        fileDownloadUri
-                );
-            }
-        }
-
-        return new MessageResponse(
-                message.getId(),
-                message.getRoomId(),
-                message.getContent(),
-                senderSummary,
-                message.getType(),
-                fileResponse,
-                message.getAiType(),
-                message.getMentions(),
-                message.getTimestamp()
-        );
     }
 
     @PostMapping
@@ -387,5 +507,29 @@ public class MessageController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ErrorResponse(false, "메시지 검색 중 오류가 발생했습니다: " + e.getMessage()));
         }
+    }
+
+    private MessageResponse mapToMessageResponse(Message message) {
+        UserSummaryResponse senderSummary = null;
+        if (message.getSenderId() != null) {
+            User sender = userRepository.findById(message.getSenderId()).orElse(null);
+            if (sender != null) {
+                senderSummary = new UserSummaryResponse(
+                        sender.getId(),
+                        sender.getName(),
+                        sender.getEmail(),
+                        sender.getProfileImage()
+                );
+            }
+        }
+
+        return MessageResponse.builder()
+                .id(message.getId())
+                .content(message.getContent())
+                .sender(senderSummary)
+                .type(message.getType())
+                .timestamp(message.getTimestamp())
+                .readCount(message.getReadCount()) // 읽음 상태 정보 추가
+                .build();
     }
 }

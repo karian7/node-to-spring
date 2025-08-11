@@ -1,6 +1,6 @@
 package com.example.chatapp.dto;
 
-import jakarta.validation.constraints.Email;
+import com.example.chatapp.validation.ValidEmail;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,10 +13,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class LoginRequest {
 
-    @NotBlank
-    @Email
+    @NotBlank(message = "이메일을 입력해주세요.")
+    @ValidEmail(message = "올바른 이메일 형식이 아닙니다.")
     private String email;
 
-    @NotBlank
+    @NotBlank(message = "비밀번호를 입력해주세요.")
     private String password;
 }

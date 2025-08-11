@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,18 +50,42 @@ public class Message {
 
     private Map<String, Set<String>> reactions;
 
-    private List<ReaderInfo> readers;
+    // 읽음 상태 관리를 위한 readers 필드 추가
+    @Builder.Default
+    private List<MessageReader> readers = new ArrayList<>();
 
-    private FileMetadata metadata;
-
+    // 읽음 상태 관리를 위한 내부 클래스
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ReaderInfo {
+    public static class MessageReader {
         private String userId;
         private LocalDateTime readAt;
     }
+
+    // 사용자가 메시지를 읽었는지 확인하는 메서드
+    public boolean isReadBy(String userId) {
+        return readers.stream()
+                .anyMatch(reader -> reader.getUserId().equals(userId));
+    }
+
+    // 사용자의 읽음 상태를 추가하는 메서드
+    public void markAsReadBy(String userId) {
+        if (!isReadBy(userId)) {
+            readers.add(MessageReader.builder()
+                    .userId(userId)
+                    .readAt(LocalDateTime.now())
+                    .build());
+        }
+    }
+
+    // 메시지를 읽은 사용자 수를 반환하는 메서드
+    public int getReadCount() {
+        return readers.size();
+    }
+
+    private FileMetadata metadata;
 
     @Data
     @Builder

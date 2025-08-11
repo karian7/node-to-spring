@@ -24,4 +24,19 @@ public class MessageResponse {
     private AiType aiType;
     private List<String> mentions;
     private LocalDateTime timestamp;
+
+    // 읽음 상태 관리를 위한 필드 추가
+    private int readCount;
+    private List<ReaderInfo> readers;
+    private boolean isDeleted;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReaderInfo {
+        private String userId;
+        private String userName;
+        private LocalDateTime readAt;
+    }
 }
