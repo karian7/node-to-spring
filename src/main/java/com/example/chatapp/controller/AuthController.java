@@ -14,7 +14,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.BindingResult;
@@ -41,7 +40,7 @@ public class AuthController {
     private final SessionService sessionService;
 
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<LoginResponse>> registerUser(
+    public ResponseEntity<?> registerUser(
             @Valid @RequestBody RegisterRequest registerRequest,
             BindingResult bindingResult,
             HttpServletRequest request) {
@@ -93,7 +92,7 @@ public class AuthController {
                     .build();
 
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.success("회원가입이 완료되었습니다.", response));
+                    .body(response);
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -102,7 +101,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> login(
+    public ResponseEntity<?> login(
             @Valid @RequestBody LoginRequest loginRequest,
             BindingResult bindingResult,
             HttpServletRequest request) {
@@ -145,7 +144,6 @@ public class AuthController {
                     sessionService.createSession(user.getId(), metadata);
 
             // Generate JWT token
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
             String token = jwtUtil.generateToken(sessionInfo.getSessionId(), user.getId());
 
             LoginResponse response = LoginResponse.builder()
@@ -155,7 +153,7 @@ public class AuthController {
                     .user(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getProfileImage()))
                     .build();
 
-            return ResponseEntity.ok(ApiResponse.success("로그인이 완료되었습니다.", response));
+            return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
