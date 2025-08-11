@@ -2,8 +2,8 @@ package com.example.chatapp.websocket;
 
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -17,13 +17,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class WebSocketEventListener {
 
-    @Autowired
-    private SimpMessageSendingOperations messagingTemplate;
-
-    @Autowired
-    private UserRepository userRepository;
+    private final SimpMessageSendingOperations messagingTemplate;
+    private final UserRepository userRepository;
 
     // 온라인 사용자 세션 관리
     private final ConcurrentHashMap<String, String> onlineUsers = new ConcurrentHashMap<>(); // sessionId -> userId
@@ -115,28 +113,6 @@ public class WebSocketEventListener {
     }
 
     // 사용자 온라인 상태 이벤트 DTO
-    public static class UserOnlineStatusEvent {
-        private String userId;
-        private boolean isOnline;
-        private LocalDateTime timestamp;
-
-        public UserOnlineStatusEvent(String userId, boolean isOnline, LocalDateTime timestamp) {
-            this.userId = userId;
-            this.isOnline = isOnline;
-            this.timestamp = timestamp;
-        }
-
-        // Getters
-        public String getUserId() {
-            return userId;
-        }
-
-        public boolean isOnline() {
-            return isOnline;
-        }
-
-        public LocalDateTime getTimestamp() {
-            return timestamp;
-        }
+    public record UserOnlineStatusEvent(String userId, boolean isOnline, LocalDateTime timestamp) {
     }
 }

@@ -43,10 +43,10 @@ public class AiService {
                 .retrieve()
                 .bodyToFlux(OpenAiResponse.class)
                 .map(response -> {
-                    if (response.getChoices() != null && !response.getChoices().isEmpty()) {
-                        OpenAiResponse.Delta delta = response.getChoices().get(0).getDelta();
-                        if (delta != null && delta.getContent() != null) {
-                            return delta.getContent();
+                    if (response.choices() != null && !response.choices().isEmpty()) {
+                        OpenAiResponse.Delta delta = response.choices().get(0).delta();
+                        if (delta != null && delta.content() != null) {
+                            return delta.content();
                         }
                     }
                     return "";

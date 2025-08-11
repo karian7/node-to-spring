@@ -10,8 +10,8 @@ import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.AiService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -30,28 +30,16 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Controller
+@RequiredArgsConstructor
 public class ChatController {
 
-    @Autowired
-    private SimpMessageSendingOperations messagingTemplate;
-
-    @Autowired
-    private MessageRepository messageRepository;
-
-    @Autowired
-    private RoomRepository roomRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private FileRepository fileRepository;
-
-    @Autowired
-    private AiService aiService;
-
-    @Autowired
-    private WebSocketEventListener webSocketEventListener;
+    private final SimpMessageSendingOperations messagingTemplate;
+    private final MessageRepository messageRepository;
+    private final RoomRepository roomRepository;
+    private final UserRepository userRepository;
+    private final FileRepository fileRepository;
+    private final AiService aiService;
+    private final WebSocketEventListener webSocketEventListener;
 
     @MessageMapping("/chat.sendMessage")
     public void sendMessage(@Payload SendMessageRequest chatMessage, Principal principal) {
@@ -222,7 +210,7 @@ public class ChatController {
     @Transactional
     @MessageMapping("/chat.joinRoom")
     public void joinRoom(@Payload RoomIdRequest request, Principal principal) {
-        String roomId = request.getRoomId();
+        String roomId = request.roomId();
         User user = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
         Room room = roomRepository.findById(roomId)
@@ -243,7 +231,7 @@ public class ChatController {
     @Transactional
     @MessageMapping("/chat.leaveRoom")
     public void leaveRoom(@Payload RoomIdRequest request, Principal principal) {
-        String roomId = request.getRoomId();
+        String roomId = request.roomId();
         User user = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
         Room room = roomRepository.findById(roomId)
@@ -316,9 +304,9 @@ public class ChatController {
         final int BATCH_SIZE = 30;
         Pageable pageable = org.springframework.data.domain.PageRequest.of(0, BATCH_SIZE, org.springframework.data.domain.Sort.by("timestamp").descending());
 
-        LocalDateTime before = request.getBefore() == null ? LocalDateTime.now() : request.getBefore();
+        LocalDateTime before = request.before() == null ? LocalDateTime.now() : request.before();
 
-        Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(request.getRoomId(), before, pageable);
+        Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(request.roomId(), before, pageable);
 
         List<Message> messages = messagePage.getContent();
 

@@ -19,6 +19,6 @@ public class AiController {
 
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatWithAi(@RequestBody AiRequest aiRequest) {
-        return aiService.generateResponse(aiRequest.getMessage(), aiRequest.getPersona());
+        return aiService.generateResponse(aiRequest.message(), aiRequest.persona());
     }
 }
