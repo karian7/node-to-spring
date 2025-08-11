@@ -11,6 +11,14 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MessageReactionResponse {
-    private String messageId;
+    private boolean success;
+    private String message;
     private Map<String, Set<String>> reactions;
+
+    // 기존 생성자와의 호환성을 위한 추가 생성자
+    public MessageReactionResponse(String messageId, Map<String, Set<String>> reactions) {
+        this.success = true;
+        this.message = messageId;
+        this.reactions = reactions;
+    }
 }

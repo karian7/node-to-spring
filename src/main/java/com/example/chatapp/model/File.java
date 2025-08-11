@@ -29,11 +29,9 @@ public class File {
 
     private long size;
 
-    @Field("userId")
-    private String userId;
-
-    private String path;
+    @Field("uploadedBy")
+    private String uploadedBy;
 
     @CreatedDate
-    private LocalDateTime uploadDate;
+    private LocalDateTime uploadedAt;
 }

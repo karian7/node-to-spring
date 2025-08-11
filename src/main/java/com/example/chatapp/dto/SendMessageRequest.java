@@ -1,12 +1,14 @@
 package com.example.chatapp.dto;
 
+import com.example.chatapp.model.AiType;
 import com.example.chatapp.model.MessageType;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Data
 @Builder
@@ -24,4 +26,8 @@ public class SendMessageRequest {
     private MessageType type = MessageType.TEXT;
 
     private String fileId;
+
+    private AiType aiType;
+
+    private List<String> mentions;
 }

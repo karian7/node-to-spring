@@ -45,8 +45,7 @@ public class FileController {
         dbFile.setOriginalname(file.getOriginalFilename());
         dbFile.setMimetype(file.getContentType());
         dbFile.setSize(file.getSize());
-        dbFile.setUserId(user.getId());
-        dbFile.setPath(fileService.loadFileAsResource(fileName).toString()); // This should be the path
+        dbFile.setUploadedBy(user.getId()); // setUploadedBy로 변경
 
         fileRepository.save(dbFile);
 

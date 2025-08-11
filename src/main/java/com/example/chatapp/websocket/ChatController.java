@@ -75,7 +75,7 @@ public class ChatController {
                     .orElseThrow(() -> new RuntimeException("File not found"));
 
             // Optional: Check if the sender owns the file
-            if (!file.getUserId().equals(sender.getId())) {
+            if (!file.getUploadedBy().equals(sender.getId())) {
                 // Handle error: user does not have permission for this file
                 return;
             }

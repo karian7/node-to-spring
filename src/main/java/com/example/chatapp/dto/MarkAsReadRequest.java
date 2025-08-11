@@ -8,4 +8,5 @@ import java.util.List;
 public class MarkAsReadRequest {
     private String roomId;
     private List<String> messageIds;
+    private String lastReadMessageId;
 }
