@@ -2,6 +2,7 @@ package com.example.chatapp.dto;
 
 import com.example.chatapp.model.AiType;
 import com.example.chatapp.model.MessageType;
+import com.example.chatapp.model.Message;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +10,8 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Data
 @Builder
@@ -18,25 +21,19 @@ public class MessageResponse {
     private String id;
     private String roomId;
     private String content;
-    private UserSummaryResponse sender;
+    private UserResponse sender;
     private MessageType type;
-    private FileUploadResponse file;
+    private FileResponse file;
     private AiType aiType;
     private List<String> mentions;
     private LocalDateTime timestamp;
 
-    // 읽음 상태 관리를 위한 필드 추가
-    private int readCount;
-    private List<ReaderInfo> readers;
-    private boolean isDeleted;
+    // 노드 버전과 동일한 필드들 추가
+    private Map<String, Set<String>> reactions;
+    private List<Message.MessageReader> readers;
+    private Message.FileMetadata metadata;
 
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ReaderInfo {
-        private String userId;
-        private String userName;
-        private LocalDateTime readAt;
-    }
+    // 기존 필드들 (호환성 유지)
+    private int readCount;
+    private boolean isDeleted;
 }

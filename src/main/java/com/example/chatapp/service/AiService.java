@@ -59,4 +59,29 @@ public class AiService {
             default -> "You are Wayne AI. Your role is a friendly and helpful assistant. You provide professional and insightful answers, deeply understand user questions, and offer clear explanations in a professional yet friendly tone.";
         };
     }
+
+    // 노드 버전과 호환되는 스트리밍 응답 메서드 추가
+    public void generateStreamingResponse(com.example.chatapp.model.AiType aiType, String query,
+                                        java.util.function.Consumer<String> onChunk,
+                                        Runnable onComplete) {
+        try {
+            String persona = mapAiTypeToPersona(aiType);
+            generateResponse(query, persona)
+                .doOnNext(onChunk::accept)
+                .doOnComplete(onComplete)
+                .subscribe();
+        } catch (Exception e) {
+            throw new RuntimeException("AI 스트리밍 응답 생성 중 오류가 발생했습니다.", e);
+        }
+    }
+
+    private String mapAiTypeToPersona(com.example.chatapp.model.AiType aiType) {
+        return switch (aiType) {
+            case GPT -> "gpt-assistant";
+            case CLAUDE -> "claude-assistant";
+            case GEMINI -> "gemini-assistant";
+            case WAYNE_AI -> "wayneAI";
+            case CONSULTING_AI -> "consultingAI";
+        };
+    }
 }
