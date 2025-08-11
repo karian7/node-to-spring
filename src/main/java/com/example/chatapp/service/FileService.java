@@ -1,5 +1,9 @@
 package com.example.chatapp.service;
 
+import com.example.chatapp.util.FileSecurityUtil;
+import lombok.Builder;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -13,14 +17,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.UUID;
 
+@Slf4j
 @Service
 public class FileService {
 
     private final Path fileStorageLocation;
+    private final FileSecurityUtil fileSecurityUtil;
 
-    public FileService(@Value("${file.upload-dir}") String uploadDir) {
+    public FileService(@Value("${file.upload-dir}") String uploadDir,
+                      FileSecurityUtil fileSecurityUtil) {
+        this.fileSecurityUtil = fileSecurityUtil;
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.fileStorageLocation);
@@ -29,27 +36,96 @@ public class FileService {
         }
     }
 
-    public String storeFile(MultipartFile file) {
-        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
-        String fileExtension = "";
+    /**
+     * 보안 검증이 강화된 파일 저장
+     */
+    public SecureFileUploadResult storeFileSecurely(MultipartFile file) {
         try {
-            fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
-        } catch (Exception e) {
-            fileExtension = "";
-        }
-        String fileName = UUID.randomUUID().toString() + fileExtension;
-
-        try {
-            if (fileName.contains("..")) {
-                throw new RuntimeException("Sorry! Filename contains invalid path sequence " + fileName);
+            // 1. 기본 파일 정보 검증
+            if (file.isEmpty()) {
+                throw new RuntimeException("빈 파일은 업로드할 수 없습니다.");
             }
 
-            Path targetLocation = this.fileStorageLocation.resolve(fileName);
+            String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
+            String mimeType = file.getContentType();
+            long fileSize = file.getSize();
+
+            // 2. 보안 검증 수행
+            FileSecurityUtil.FileValidationResult validationResult =
+                fileSecurityUtil.validateFile(originalFilename, mimeType, fileSize);
+
+            if (!validationResult.isValid()) {
+                throw new RuntimeException(validationResult.getErrorMessage());
+            }
+
+            // 3. 안전한 파일명 사용
+            String safeFilename = validationResult.getSafeFilename();
+
+            // 4. 경로 안전성 검증
+            Path targetLocation = this.fileStorageLocation.resolve(safeFilename);
+            if (!fileSecurityUtil.isPathSafe(targetLocation.toString(),
+                                           this.fileStorageLocation.toString())) {
+                throw new RuntimeException("파일 경로가 안전하지 않습니다.");
+            }
+
+            // 5. 파일 저장
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
 
-            return fileName;
+            log.info("File uploaded securely: {} -> {}", originalFilename, safeFilename);
+
+            return SecureFileUploadResult.builder()
+                    .success(true)
+                    .storedFilename(safeFilename)
+                    .originalFilename(validationResult.getSanitizedOriginalName())
+                    .fileSize(fileSize)
+                    .mimeType(mimeType)
+                    .build();
+
         } catch (IOException ex) {
-            throw new RuntimeException("Could not store file " + fileName + ". Please try again!", ex);
+            log.error("파일 저장 중 오류 발생: {}", ex.getMessage(), ex);
+            throw new RuntimeException("파일 저장에 실패했습니다: " + ex.getMessage(), ex);
+        } catch (Exception ex) {
+            log.error("파일 업로드 보안 검증 실패: {}", ex.getMessage(), ex);
+            throw new RuntimeException(ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * 기존 호환성을 위한 레거시 메서드 (내부적으로 보안 검증 사용)
+     */
+    public String storeFile(MultipartFile file) {
+        SecureFileUploadResult result = storeFileSecurely(file);
+        return result.getStoredFilename();
+    }
+
+    /**
+     * 보안 검증이 강화된 파일 로드
+     */
+    public Resource loadFileAsResourceSecurely(String fileName, String userId) {
+        try {
+            // 1. 파일명 보안 검증
+            if (fileName == null || fileName.contains("..")) {
+                throw new RuntimeException("유효하지 않은 파일명입니다: " + fileName);
+            }
+
+            // 2. 경로 안전성 검증
+            Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
+            if (!fileSecurityUtil.isPathSafe(filePath.toString(),
+                                           this.fileStorageLocation.toString())) {
+                throw new RuntimeException("파일 경로가 안전하지 않습니다.");
+            }
+
+            // 3. 파일 존재 확인
+            Resource resource = new UrlResource(filePath.toUri());
+            if (resource.exists()) {
+                log.debug("File accessed by user {}: {}", userId, fileName);
+                return resource;
+            } else {
+                throw new RuntimeException("파일을 찾을 수 없습니다: " + fileName);
+            }
+        } catch (MalformedURLException ex) {
+            log.error("파일 로드 중 오류 발생: {}", ex.getMessage(), ex);
+            throw new RuntimeException("파일 로드에 실패했습니다: " + fileName, ex);
         }
     }
 
@@ -67,42 +143,49 @@ public class FileService {
         }
     }
 
-    public String uploadProfileImage(MultipartFile file, String userId) {
-        // 프로필 이미지 파일 검증
-        if (file.isEmpty()) {
-            throw new RuntimeException("업로드할 파일이 없습니다.");
-        }
-
-        // 이미지 파일 타입 검증
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            throw new RuntimeException("이미지 파일만 업로드 가능합니다.");
-        }
-
-        // 파일 크기 검증 (5MB 제한)
-        if (file.getSize() > 5 * 1024 * 1024) {
-            throw new RuntimeException("파일 크기는 5MB를 초과할 수 없습니다.");
-        }
-
-        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
-        String fileExtension = "";
+    /**
+     * 파일 삭제 (보안 검증 포함)
+     */
+    public boolean deleteFileSecurely(String fileName, String userId) {
         try {
-            fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
-        } catch (Exception e) {
-            fileExtension = ".jpg"; // 기본 확장자
-        }
+            // 1. 파일명 보안 검증
+            if (fileName == null || fileName.contains("..")) {
+                log.warn("Invalid file deletion attempt by user {}: {}", userId, fileName);
+                return false;
+            }
 
-        // 프로필 이미지 전용 파일명 생성
-        String fileName = "profile_" + userId + "_" + System.currentTimeMillis() + fileExtension;
+            // 2. 경로 안전성 검증
+            Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
+            if (!fileSecurityUtil.isPathSafe(filePath.toString(),
+                                           this.fileStorageLocation.toString())) {
+                log.warn("Unsafe file deletion attempt by user {}: {}", userId, fileName);
+                return false;
+            }
 
-        try {
-            Path targetLocation = this.fileStorageLocation.resolve(fileName);
-            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+            // 3. 파일 삭제
+            boolean deleted = Files.deleteIfExists(filePath);
+            if (deleted) {
+                log.info("File deleted by user {}: {}", userId, fileName);
+            }
+            return deleted;
 
-            // 파일 접근 URL 반환 (실제 구현에서는 서버 URL 포함)
-            return "/api/files/" + fileName;
         } catch (IOException ex) {
-            throw new RuntimeException("프로필 이미지 저장에 실패했습니다: " + ex.getMessage(), ex);
+            log.error("파일 삭제 중 오류 발생: {}", ex.getMessage(), ex);
+            return false;
         }
+    }
+
+    /**
+     * 보안 파일 업로드 결과를 담는 클래스
+     */
+    @Data
+    @Builder
+    public static class SecureFileUploadResult {
+        private boolean success;
+        private String storedFilename;
+        private String originalFilename;
+        private long fileSize;
+        private String mimeType;
+        private String errorMessage;
     }
 }

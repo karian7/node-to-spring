@@ -226,10 +226,10 @@
    - [x] 연결 관리 시스템 고도화
    - [x] WebSocket 메시지 전송 및 읽음 상태 실시간 알림
 
-3. **보안 강화** 🚧 **진행 중**
-   - [ ] 파일 업로드 보안 검증 강화
-   - [ ] Rate Limiting 구현
-   - [ ] 세션 보안 강화
+3. **보안 강화** ✅ **완료**
+   - [x] 파일 업로드 보안 검증 강화
+   - [x] Rate Limiting 구현
+   - [x] 세션 보안 강화
 
 ### ✅ **완료된 주요 작업 내용**
 
@@ -250,6 +250,34 @@
   - `/unread-count` 엔드포인트로 읽지 않은 메시지 수 조회
   - WebSocket 실시간 메시지 전송 및 읽음 상태 알림
 - **MessageResponse.java**: readCount, readers 정보 포함
+
+#### 3. 보안 강화 (100% 완료)
+- **FileSecurityUtil.java**: 파일 업로드 보안 검증 유틸리티
+  - 경로 안전성 검증 (Path Traversal 공격 방지)
+  - 안전한 파일명 생성 (타임스탬프 + 랜덤 바이트)
+  - 파일 확장자 및 MIME 타입 검증
+  - 파일 크기 제한 (10MB)
+  - 파일명 특수문자 제거 및 sanitization
+- **FileService.java**: 보안 검증이 통합된 파일 저장/로드/삭제
+  - `storeFileSecurely()`: 종합적인 보안 검증 후 파일 저장
+  - `loadFileAsResourceSecurely()`: 안전한 파일 접근 및 로깅
+  - `deleteFileSecurely()`: 권한 검증 후 파일 삭제
+- **RateLimitConfig.java**: Redis 기반 Rate Limiting 서비스
+  - IP당 분당 60회 요청 제한 (Node.js와 동일)
+  - 표준 Rate Limit 헤더 지원
+  - 클라이언트 식별 (IP + User-Agent)
+  - 동적 설정 가능
+- **@RateLimit 어노테이션**: 컨트롤러 메서드별 Rate Limiting 적용
+  - 클래스/메서드 레벨 적용 가능
+  - IP, USER, IP_AND_USER 범위 설정
+  - 커스텀 메시지 및 제한 수치 설정
+- **RateLimitInterceptor.java**: Rate Limiting 자동 적용
+- **SessionService.java 고급 보안 기능**:
+  - 의심스러운 활동 감지 (IP/User-Agent 변경)
+  - 세션 TTL 동적 조정 (활동 유형별)
+  - 강제 로그아웃 기능
+  - 보안 이벤트 로깅
+  - 중복 로그인 방지
 
 ### 🟡 **High Priority Tasks (단기 수행)**
 

@@ -1,5 +1,6 @@
 package com.example.chatapp.controller;
 
+import com.example.chatapp.annotation.RateLimit;
 import com.example.chatapp.dto.*;
 import com.example.chatapp.model.Room;
 import com.example.chatapp.model.User;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/rooms")
+@RateLimit(maxRequests = 60, windowSeconds = 60) // 클래스 레벨에 기본 Rate Limit 적용
 public class RoomController {
 
     private final RoomRepository roomRepository;
@@ -37,6 +39,7 @@ public class RoomController {
     }
 
     @PostMapping
+    @RateLimit(maxRequests = 10, windowSeconds = 60) // 방 생성은 더 엄격한 제한
     public ResponseEntity<RoomResponse> createRoom(@Valid @RequestBody CreateRoomRequest createRoomRequest, Principal principal) {
         User creator = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
