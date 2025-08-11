@@ -1,8 +1,6 @@
 package com.example.chatapp.controller;
 
-import com.example.chatapp.dto.ApiResponse;
-import com.example.chatapp.dto.LoginRequest;
-import com.example.chatapp.dto.RegisterRequest;
+import com.example.chatapp.dto.*;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.SessionService;
@@ -28,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @RequiredArgsConstructor
 @RestController
@@ -42,7 +41,7 @@ public class AuthController {
     private final SessionService sessionService;
 
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> registerUser(
+    public ResponseEntity<ApiResponse<LoginResponse>> registerUser(
             @Valid @RequestBody RegisterRequest registerRequest,
             BindingResult bindingResult,
             HttpServletRequest request) {
@@ -71,7 +70,7 @@ public class AuthController {
                     .password(passwordEncoder.encode(registerRequest.getPassword()))
                     .build();
 
-            userRepository.save(user);
+            user = userRepository.save(user);
 
             // Create session with metadata
             SessionService.SessionMetadata metadata = new SessionService.SessionMetadata(
@@ -84,20 +83,17 @@ public class AuthController {
                     sessionService.createSession(user.getId(), metadata);
 
             // Generate JWT token with session ID
-            String token = jwtUtil.generateToken(sessionInfo.getSessionId(), user.getName());
+            String token = jwtUtil.generateToken(sessionInfo.getSessionId(), user.getId());
 
-            // Prepare response data
-            Map<String, Object> responseData = new HashMap<>();
-            responseData.put("token", token);
-            responseData.put("sessionId", sessionInfo.getSessionId());
-            responseData.put("user", Map.of(
-                    "_id", user.getId(),
-                    "name", user.getName(),
-                    "email", user.getEmail()
-            ));
+            LoginResponse response = LoginResponse.builder()
+                    .success(true)
+                    .token(token)
+                    .sessionId(sessionInfo.getSessionId())
+                    .user(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getProfileImage()))
+                    .build();
 
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.success("회원가입이 완료되었습니다.", responseData));
+                    .body(ApiResponse.success("회원가입이 완료되었습니다.", response));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -106,7 +102,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> login(
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest loginRequest,
             BindingResult bindingResult,
             HttpServletRequest request) {
@@ -150,19 +146,16 @@ public class AuthController {
 
             // Generate JWT token
             UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            String token = jwtUtil.generateToken(user.getEmail(), userDetails.getUsername());
+            String token = jwtUtil.generateToken(sessionInfo.getSessionId(), user.getId());
 
-            // Prepare response data
-            Map<String, Object> responseData = new HashMap<>();
-            responseData.put("token", token);
-            responseData.put("sessionId", sessionInfo.getSessionId());
-            responseData.put("user", Map.of(
-                    "_id", user.getId(),
-                    "name", user.getName(),
-                    "email", user.getEmail()
-            ));
+            LoginResponse response = LoginResponse.builder()
+                    .success(true)
+                    .token(token)
+                    .sessionId(sessionInfo.getSessionId())
+                    .user(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getProfileImage()))
+                    .build();
 
-            return ResponseEntity.ok(ApiResponse.success("로그인이 완료되었습니다.", responseData));
+            return ResponseEntity.ok(ApiResponse.success("로그인이 완료되었습니다.", response));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -192,6 +185,86 @@ public class AuthController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("로그아웃 처리 중 오류가 발생했습니다."));
+        }
+    }
+
+
+    @PostMapping("/verify-token")
+    public ResponseEntity<?> verifyToken(@RequestBody TokenVerifyRequest tokenVerifyRequest) {
+        try {
+            String token = tokenVerifyRequest.token();
+            String sessionId = tokenVerifyRequest.sessionId();
+
+            // 토큰 유효성 검증
+            if (!jwtUtil.validateToken(token)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new TokenVerifyResponse(false, "유효하지 않은 토큰입니다.", null));
+            }
+
+            // 토큰에서 사용자 정보 추출
+            String userId = jwtUtil.extractSubject(token);
+            Optional<User> userOpt = userRepository.findById(userId);
+
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new TokenVerifyResponse(false, "사용자를 찾을 수 없습니다.", null));
+            }
+
+            User user = userOpt.get();
+            // 세션 유효성 검증
+            if (!sessionService.validateSession(user.getId(), sessionId).isValid()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new TokenVerifyResponse(false, "만료된 세션입니다.", null));
+            }
+
+            UserDto userDto = new UserDto(user.getId(), user.getName(), user.getEmail(), user.getProfileImage());
+            return ResponseEntity.ok(new TokenVerifyResponse(true, "토큰이 유효합니다.", userDto));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new TokenVerifyResponse(false, "토큰 검증 중 오류가 발생했습니다.", null));
+        }
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<?> refreshToken(@RequestBody TokenRefreshRequest tokenRefreshRequest, HttpServletRequest request) {
+        try {
+            String token = tokenRefreshRequest.token();
+            String sessionId = tokenRefreshRequest.sessionId();
+
+            // 만료된 토큰이라도 사용자 정보는 추출 가능
+            String userId = jwtUtil.extractSubject(token);
+            Optional<User> userOpt = userRepository.findById(userId);
+
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new TokenRefreshResponse(false, "사용자를 찾을 수 없습니다.", null, null));
+            }
+
+
+            // 세션 유효성 검증
+            if (!sessionService.validateSession(userOpt.get().getId(), sessionId).isValid()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new TokenRefreshResponse(false, "만료된 세션입니다.", null, null));
+            }
+
+            // 세션 갱신
+            sessionService.removeSession(userOpt.get().getId(), sessionId);
+            SessionService.SessionMetadata metadata = new SessionService.SessionMetadata(
+                    request.getHeader("User-Agent"),
+                    getClientIpAddress(request),
+                    request.getHeader("User-Agent")
+            );
+
+            sessionService.createSession(userOpt.get().getId(), metadata);
+
+            // 새로운 토큰 생성
+            String newToken = jwtUtil.generateToken(sessionId, userOpt.get().getId());
+            return ResponseEntity.ok(new TokenRefreshResponse(true, "토큰이 갱신되었습니다.", newToken, sessionId));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new TokenRefreshResponse(false, "토큰 갱신 중 오류가 발생했습니다.", null, null));
         }
     }
 

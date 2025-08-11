@@ -10,12 +10,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.data.mongo.AutoConfigureDataMongo;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithAnonymousUser;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,13 +34,13 @@ public class AuthControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private SessionService sessionService;
 
     @Test
     @WithAnonymousUser
     public void testRegisterUser() throws Exception {
-        when(sessionService.createSession(any(String.class))).thenReturn("mock-session-id");
+        when(sessionService.createSession(any(String.class), any(SessionService.SessionMetadata.class))).thenReturn(mock(SessionService.SessionCreationResult.class));
 
         String email = "test" + System.currentTimeMillis() + "@example.com";
         RegisterRequest registerRequest = new RegisterRequest();
@@ -65,7 +66,7 @@ public class AuthControllerTest {
     @Disabled
     @WithAnonymousUser
     public void testAuthenticateUser() throws Exception {
-        when(sessionService.createSession(any(String.class))).thenReturn("mock-session-id");
+        when(sessionService.createSession(any(String.class), any(SessionService.SessionMetadata.class))).thenReturn(mock(SessionService.SessionCreationResult.class));
 
         String email = "test" + System.currentTimeMillis() + "@example.com";
 

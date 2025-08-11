@@ -1,7 +1,6 @@
 package com.example.chatapp.security;
 
 import com.example.chatapp.service.SessionService;
-import com.example.chatapp.service.UserDetailsServiceImpl;
 import com.example.chatapp.util.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -12,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -23,7 +23,7 @@ import java.io.IOException;
 @Component
 public class JwtRequestFilter extends OncePerRequestFilter {
 
-    private final UserDetailsServiceImpl userDetailsService;
+    private final UserDetailsService userDetailsService;
     private final JwtUtil jwtUtil;
     private final SessionService sessionService;
 
@@ -34,18 +34,18 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         // Support both standard Authorization header and custom headers
         String jwt = extractJwtToken(request);
         String sessionId = extractSessionId(request);
-        String username = null;
+        String userId = null;
 
         if (jwt != null) {
             try {
-                username = jwtUtil.extractUsername(jwt);
+                userId = jwtUtil.extractSubject(jwt);
             } catch (Exception e) {
                 log.debug("JWT token extraction failed: {}", e.getMessage());
             }
         }
 
-        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+        if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = this.userDetailsService.loadUserByUsername(userId);
 
             // Validate JWT token
             if (jwtUtil.validateToken(jwt, userDetails)) {

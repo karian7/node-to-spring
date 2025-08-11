@@ -28,7 +28,7 @@ public class JwtUtil {
         return new SecretKeySpec(keyBytes, SignatureAlgorithm.HS256.getJcaName());
     }
 
-    public String extractUsername(String token) {
+    public String extractSubject(String token) {
         return extractClaim(token, Claims::getSubject);
     }
 
@@ -66,8 +66,7 @@ public class JwtUtil {
     }
 
     public Boolean validateToken(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        return (extractSubject(token).equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
 
     // 토큰 단일 유효성 검증 (사용자 정보 없이)
@@ -77,11 +76,6 @@ public class JwtUtil {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    // 토큰에서 사용자명 추출 (getUsernameFromToken 별칭)
-    public String getUsernameFromToken(String token) {
-        return extractUsername(token);
     }
 
     // 토큰에서 세션 ID 추출

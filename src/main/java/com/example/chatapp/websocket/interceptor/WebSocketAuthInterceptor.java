@@ -1,6 +1,7 @@
 package com.example.chatapp.websocket.interceptor;
 
 import com.example.chatapp.util.JwtUtil;
+import jakarta.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
@@ -26,7 +27,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
     private final UserDetailsService userDetailsService;
 
     @Override
-    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+    public Message<?> preSend(@Nonnull Message<?> message, @Nonnull MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
@@ -44,16 +45,16 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
             if (jwt != null) {
                 try {
-                    String username = jwtUtil.extractUsername(jwt);
-                    if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                        UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+                    String userId = jwtUtil.extractSubject(jwt);
+                    if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                        UserDetails userDetails = this.userDetailsService.loadUserByUsername(userId);
 
                         if (jwtUtil.validateToken(jwt, userDetails)) {
                             UsernamePasswordAuthenticationToken authToken =
                                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                             SecurityContextHolder.getContext().setAuthentication(authToken);
                             accessor.setUser(authToken);
-                            log.info("WebSocket connection authenticated for user: {}", username);
+                            log.info("WebSocket connection authenticated for user: {}", userId);
                         } else {
                             log.warn("Invalid JWT token for WebSocket connection");
                         }
