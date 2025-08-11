@@ -12,6 +12,7 @@ import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.AiService;
+import com.example.chatapp.websocket.socketio.handler.ChatMessageHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class SocketIOChatHandler {
     private final UserRepository userRepository;
     private final FileRepository fileRepository;
     private final AiService aiService;
+    private final ChatMessageHandler chatMessageHandler;
 
     // Online users management (similar to Node.js connectedUsers)
     private final Map<String, String> connectedUsers = new ConcurrentHashMap<>(); // userId -> socketId
@@ -68,8 +70,8 @@ public class SocketIOChatHandler {
         socketIOServer.addConnectListener(onConnect());
         socketIOServer.addDisconnectListener(onDisconnect());
 
-        // Chat events (same as Node.js backend)
-        socketIOServer.addEventListener("sendMessage", SendMessageRequest.class, onSendMessage());
+        // Chat events (same as Node.js backend) - Object로 타입 변경
+        socketIOServer.addEventListener("chatMessage", Map.class, chatMessageHandler.getListener());
         socketIOServer.addEventListener("joinRoom", RoomIdRequest.class, onJoinRoom());
         socketIOServer.addEventListener("leaveRoom", RoomIdRequest.class, onLeaveRoom());
         socketIOServer.addEventListener("fetchPreviousMessages", FetchMessagesRequest.class, onFetchPreviousMessages());
@@ -77,13 +79,14 @@ public class SocketIOChatHandler {
         socketIOServer.addEventListener("messageReaction", MessageReactionRequest.class, onMessageReaction());
 
         // 강제 로그아웃 이벤트 추가 (Map 타입 제거하고 Object 사용)
-        socketIOServer.addEventListener("force_login", Object.class, onForceLogin());
+        socketIOServer.addEventListener("force_login", Map.class, onForceLogin());
 
         // Notification events (same as Node.js backend)
         socketIOServer.addEventListener("typing.start", TypingRequest.class, onTypingStart());
         socketIOServer.addEventListener("typing.stop", TypingRequest.class, onTypingStop());
         socketIOServer.addEventListener("users.online", Object.class, onGetOnlineUsers());
         socketIOServer.addEventListener("user.activity", Object.class, onUpdateUserActivity());
+
 
         log.info("Socket.IO event handlers initialized");
     }
@@ -165,80 +168,6 @@ public class SocketIOChatHandler {
         };
     }
 
-    @Transactional
-    public DataListener<SendMessageRequest> onSendMessage() {
-        return (client, data, ackSender) -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-
-                User sender = userRepository.findById(userId).orElse(null);
-                if (sender == null) {
-                    client.sendEvent("error", "User not found");
-                    return;
-                }
-
-                Room room = roomRepository.findById(data.getRoomId()).orElse(null);
-                if (room == null) {
-                    client.sendEvent("error", "Room not found");
-                    return;
-                }
-
-                // Check room participation
-                if (!room.getParticipantIds().contains(userId)) {
-                    client.sendEvent("error", "채팅방에 참여하지 않은 사용자입니다.");
-                    return;
-                }
-
-                // Create message (same logic as Node.js)
-                Message message = new Message();
-                message.setSenderId(userId);
-                message.setRoomId(data.getRoomId());
-                message.setContent(data.getContent());
-                message.setType(data.getType());
-                message.setMentions(data.getMentions());
-                message.setTimestamp(LocalDateTime.now());
-                message.setReactions(new java.util.HashMap<>());
-
-                // Handle file message
-                if (data.getType() == MessageType.FILE && data.getFileId() != null) {
-                    com.example.chatapp.model.File file = fileRepository.findById(data.getFileId()).orElse(null);
-                    if (file != null && file.getUploadedBy().equals(userId)) {
-                        message.setFileId(file.getId());
-                        message.setMetadata(Message.FileMetadata.builder()
-                                .fileType(file.getMimetype())
-                                .fileSize(file.getSize())
-                                .originalName(file.getOriginalname())
-                                .build());
-                    }
-                }
-
-                Message savedMessage = messageRepository.save(message);
-
-                // Create response (same as Node.js)
-                MessageResponse messageResponse = mapToMessageResponse(savedMessage, sender);
-
-                // Broadcast to room (same as Node.js)
-                socketIOServer.getRoomOperations("room:" + data.getRoomId())
-                        .sendEvent("message", messageResponse);
-
-                // Send delivery confirmation
-                client.sendEvent("delivery", new DeliveryConfirmation(
-                        savedMessage.getId(), savedMessage.getTimestamp(), "DELIVERED"));
-
-                // Handle mentions (same as Node.js)
-                if (data.getMentions() != null && !data.getMentions().isEmpty()) {
-                    handleMentions(data.getMentions(), messageResponse, room);
-                }
-
-                // Handle AI mentions (same as Node.js)
-                handleAiMentions(savedMessage);
-
-            } catch (Exception e) {
-                log.error("Error handling sendMessage", e);
-                client.sendEvent("error", "메시지 전송 중 오류가 발생했습니다.");
-            }
-        };
-    }
 
     @Transactional
     public DataListener<RoomIdRequest> onJoinRoom() {
@@ -506,7 +435,7 @@ public class SocketIOChatHandler {
     }
 
     // 강제 로그아웃 처리 (노드 버전과 동일) - Object 타입으로 수정
-    private DataListener<Object> onForceLogin() {
+    private DataListener<Map> onForceLogin() {
         return (client, data, ackSender) -> {
             try {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
