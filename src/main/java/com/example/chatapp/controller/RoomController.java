@@ -46,7 +46,7 @@ public class RoomController {
 
         Room room = new Room();
         room.setName(createRoomRequest.getName());
-        room.setCreatorId(creator.getId());
+        room.setCreator(creator.getId());
         room.getParticipantIds().add(creator.getId());
 
         if (createRoomRequest.getPassword() != null && !createRoomRequest.getPassword().isEmpty()) {
@@ -135,9 +135,9 @@ public class RoomController {
             }
 
             // 방장이 나가는 경우 다른 참여자를 방장으로 변경
-            if (room.getCreatorId().equals(user.getId()) && !room.getParticipantIds().isEmpty()) {
+            if (room.getCreator().equals(user.getId()) && !room.getParticipantIds().isEmpty()) {
                 String newCreatorId = room.getParticipantIds().iterator().next();
-                room.setCreatorId(newCreatorId);
+                room.setCreator(newCreatorId);
             }
 
             roomRepository.save(room);
@@ -164,7 +164,7 @@ public class RoomController {
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
 
             // 방장인지 확인
-            if (!room.getCreatorId().equals(user.getId())) {
+            if (!room.getCreator().equals(user.getId())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(new ErrorResponse(false, "채팅방을 삭제할 권한이 없습니다."));
             }
@@ -224,9 +224,10 @@ public class RoomController {
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
 
             // 사용자가 생성한 채팅방 조회
-            List<Room> createdRooms = roomRepository.findByCreatorId(user.getId());
+            List<Room> createdRooms = roomRepository.findByCreator(user.getId());
 
             List<RoomResponse> roomResponses = createdRooms.stream()
+                    .filter(room -> !room.getParticipantIds().contains(user.getId()))
                     .map(room -> mapToRoomResponse(room, principal))
                     .collect(Collectors.toList());
 
@@ -239,7 +240,7 @@ public class RoomController {
     }
 
     private RoomResponse mapToRoomResponse(Room room, Principal principal) {
-        User creator = userRepository.findById(room.getCreatorId()).orElse(null);
+        User creator = userRepository.findById(room.getCreator()).orElse(null);
         if (creator == null) {
             throw new RuntimeException("Creator not found for room " + room.getId());
         }

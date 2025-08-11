@@ -13,7 +13,7 @@ public interface RoomRepository extends MongoRepository<Room, String> {
     List<Room> findByParticipantIdsContaining(String userId);
 
     // 방장으로 생성한 채팅방 목록 조회
-    List<Room> findByCreatorId(String creatorId);
+    List<Room> findByCreator(String creator);
 
     // 채팅방 이름으로 검색
     List<Room> findByNameContainingIgnoreCase(String name);

@@ -25,8 +25,7 @@ public class Room {
 
     private String name;
 
-    @Field("creatorId")
-    private String creatorId;
+    private String creator;
 
     private boolean hasPassword;
 
