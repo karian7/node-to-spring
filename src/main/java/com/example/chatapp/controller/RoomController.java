@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -30,12 +31,12 @@ public class RoomController {
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping
-    public ResponseEntity<List<RoomResponse>> getAllRooms(Principal principal) {
+    public ResponseEntity<?> getAllRooms(Principal principal) {
         List<Room> rooms = roomRepository.findAll();
         List<RoomResponse> roomResponses = rooms.stream()
                 .map(room -> mapToRoomResponse(room, principal))
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(roomResponses);
+                .toList();
+        return ResponseEntity.ok(Map.of("data", roomResponses));
     }
 
     @PostMapping
