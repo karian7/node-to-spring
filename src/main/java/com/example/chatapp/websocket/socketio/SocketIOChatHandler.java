@@ -6,7 +6,10 @@ import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
 import com.example.chatapp.dto.*;
-import com.example.chatapp.model.*;
+import com.example.chatapp.model.Message;
+import com.example.chatapp.model.MessageType;
+import com.example.chatapp.model.Room;
+import com.example.chatapp.model.User;
 import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
@@ -66,8 +69,8 @@ public class SocketIOChatHandler {
 
         // Chat events (same as Node.js backend) - Object로 타입 변경
         socketIOServer.addEventListener("chatMessage", Map.class, chatMessageHandler.getListener());
-        socketIOServer.addEventListener("joinRoom", RoomIdRequest.class, onJoinRoom());
-        socketIOServer.addEventListener("leaveRoom", RoomIdRequest.class, onLeaveRoom());
+        socketIOServer.addEventListener("joinRoom", String.class, onJoinRoom());
+        socketIOServer.addEventListener("leaveRoom", String.class, onLeaveRoom());
         socketIOServer.addEventListener("fetchPreviousMessages", FetchMessagesRequest.class, onFetchPreviousMessagesWithRetry());
         socketIOServer.addEventListener("markMessagesAsRead", MarkAsReadRequest.class, onMarkMessagesAsRead());
         socketIOServer.addEventListener("messageReaction", MessageReactionRequest.class, onMessageReaction());
@@ -87,84 +90,88 @@ public class SocketIOChatHandler {
 
     private ConnectListener onConnect() {
         return client -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                    String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
                 String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
-
-                if (userId != null) {
-                    // Handle duplicate connections (similar to Node.js handleDuplicateLogin)
-                    String existingSocketId = connectedUsers.get(userId);
-                    if (existingSocketId != null) {
-                        SocketIOClient existingClient = socketClients.get(existingSocketId);
-                        if (existingClient != null) {
-                            // Send duplicate login notification
-                            existingClient.sendEvent("duplicate_login", Map.of(
-                                "type", "new_login_attempt",
-                                "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
-                                "ipAddress", client.getRemoteAddress().toString(),
-                                "timestamp", System.currentTimeMillis()
-                            ));
-
-                            // Disconnect existing client after delay
-                            new Thread(() -> {
-                                try {
-                                    Thread.sleep(DUPLICATE_LOGIN_TIMEOUT); // 10 second delay like Node.js
-                                    existingClient.sendEvent("session_ended", Map.of(
-                                        "reason", "duplicate_login",
-                                        "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
-                                    ));
-                                    existingClient.disconnect();
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            }).start();
-                        }
-                    }
-
-                    // Store new connection
-                    connectedUsers.put(userId, client.getSessionId().toString());
-                    socketClients.put(client.getSessionId().toString(), client);
-
-                    log.info("Socket.IO user connected: {} ({})", userName, userId);
-
-                    // Join user to their personal room for direct messages
-                    client.joinRoom("user:" + userId);
-                }
-            } catch (Exception e) {
-                log.error("Error handling Socket.IO connection", e);
-            }
+                log.info("Socket.IO user connected: {} ({})", userName, userId);
+//            try {
+//                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+//                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
+//
+//                if (userId != null) {
+//                    // Handle duplicate connections (similar to Node.js handleDuplicateLogin)
+//                    String existingSocketId = connectedUsers.get(userId);
+//                    if (existingSocketId != null) {
+//                        SocketIOClient existingClient = socketClients.get(existingSocketId);
+//                        if (existingClient != null) {
+//                            // Send duplicate login notification
+//                            existingClient.sendEvent("duplicate_login", Map.of(
+//                                "type", "new_login_attempt",
+//                                "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
+//                                "ipAddress", client.getRemoteAddress().toString(),
+//                                "timestamp", System.currentTimeMillis()
+//                            ));
+//
+//                            // Disconnect existing client after delay
+//                            new Thread(() -> {
+//                                try {
+//                                    Thread.sleep(DUPLICATE_LOGIN_TIMEOUT); // 10 second delay like Node.js
+//                                    existingClient.sendEvent("session_ended", Map.of(
+//                                        "reason", "duplicate_login",
+//                                        "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
+//                                    ));
+//                                    existingClient.disconnect();
+//                                } catch (InterruptedException e) {
+//                                    Thread.currentThread().interrupt();
+//                                }
+//                            }).start();
+//                        }
+//                    }
+//
+//                    // Store new connection
+//                    connectedUsers.put(userId, client.getSessionId().toString());
+//                    socketClients.put(client.getSessionId().toString(), client);
+//
+//                    log.info("Socket.IO user connected: {} ({})", userName, userId);
+//
+//                    // Join user to their personal room for direct messages
+//                    client.joinRoom("user:" + userId);
+//                }
+//            } catch (Exception e) {
+//                log.error("Error handling Socket.IO connection", e);
+//            }
         };
     }
 
     private DisconnectListener onDisconnect() {
         return client -> {
-            try {
-                String socketId = client.getSessionId().toString();
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
-
-                if (userId != null) {
-                    connectedUsers.remove(userId);
-                    socketClients.remove(socketId);
-
-                    log.info("Socket.IO user disconnected: {} ({})", userName, userId);
-
-                    // Broadcast user offline status (similar to Node.js)
-                    socketIOServer.getBroadcastOperations().sendEvent("user.status", Map.of(
-                        "userId", userId,
-                        "isOnline", false,
-                        "timestamp", LocalDateTime.now()
-                    ));
-                }
-            } catch (Exception e) {
-                log.error("Error handling Socket.IO disconnection", e);
-            }
+//            authHandler.filter(client); // Ensure authentication
+//            try {
+//                String socketId = client.getSessionId().toString();
+//                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+//                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
+//
+//                if (userId != null) {
+//                    connectedUsers.remove(userId);
+//                    socketClients.remove(socketId);
+//
+//                    log.info("Socket.IO user disconnected: {} ({})", userName, userId);
+//
+//                    // Broadcast user offline status (similar to Node.js)
+//                    socketIOServer.getBroadcastOperations().sendEvent("user.status", Map.of(
+//                        "userId", userId,
+//                        "isOnline", false,
+//                        "timestamp", LocalDateTime.now()
+//                    ));
+//                }
+//            } catch (Exception e) {
+//                log.error("Error handling Socket.IO disconnection", e);
+//            }
         };
     }
 
 
-    public DataListener<RoomIdRequest> onJoinRoom() {
-        return (client, data, ackSender) -> {
+    public DataListener<String> onJoinRoom() {
+        return (client, roomId, ackSender) -> {
             try {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
                 String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
@@ -175,9 +182,9 @@ public class SocketIOChatHandler {
                     return;
                 }
 
-                Room room = roomRepository.findById(data.roomId()).orElse(null);
+                Room room = roomRepository.findById(roomId).orElse(null);
                 if (room == null) {
-                    client.sendEvent("error", "Room not found: " + data.roomId());
+                    client.sendEvent("error", "Room not found: " + roomId);
                     return;
                 }
 
@@ -185,15 +192,15 @@ public class SocketIOChatHandler {
                 roomRepository.save(room);
 
                 // Join socket room
-                client.joinRoom("room:" + data.roomId());
+                client.joinRoom("room:" + roomId);
 
                 log.info("User {} joined room {}", userName, room.getName());
 
                 // Send system message (same as Node.js)
-                sendSystemMessage(data.roomId(), userName + "님이 입장하였습니다.");
+                sendSystemMessage(roomId, userName + "님이 입장하였습니다.");
 
                 // Broadcast updated participant list
-                broadcastParticipantList(data.roomId());
+                broadcastParticipantList(roomId);
 
             } catch (Exception e) {
                 log.error("Error handling joinRoom", e);
@@ -202,29 +209,29 @@ public class SocketIOChatHandler {
         };
     }
 
-    public DataListener<RoomIdRequest> onLeaveRoom() {
-        return (client, data, ackSender) -> {
+    public DataListener<String> onLeaveRoom() {
+        return (client, roomId, ackSender) -> {
             try {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
                 String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
 
                 User user = userRepository.findById(userId).orElse(null);
-                Room room = roomRepository.findById(data.roomId()).orElse(null);
+                Room room = roomRepository.findById(roomId).orElse(null);
 
                 if (user != null && room != null) {
                     room.getParticipantIds().remove(userId);
                     roomRepository.save(room);
 
                     // Leave socket room
-                    client.leaveRoom("room:" + data.roomId());
+                    client.leaveRoom("room:" + roomId);
 
                     log.info("User {} left room {}", userName, room.getName());
 
                     // Send system message
-                    sendSystemMessage(data.roomId(), userName + "님이 퇴장하였습니다.");
+                    sendSystemMessage(roomId, userName + "님이 퇴장하였습니다.");
 
                     // Broadcast updated participant list
-                    broadcastParticipantList(data.roomId());
+                    broadcastParticipantList(roomId);
                 }
 
             } catch (Exception e) {

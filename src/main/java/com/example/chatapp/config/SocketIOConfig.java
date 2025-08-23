@@ -2,7 +2,11 @@ package com.example.chatapp.config;
 
 import com.corundumstudio.socketio.Configuration;
 import com.corundumstudio.socketio.SocketIOServer;
-import com.example.chatapp.websocket.socketio.SocketIOAuthHandler;
+import com.corundumstudio.socketio.namespace.Namespace;
+import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
+import com.example.chatapp.websocket.socketio.AuthTokenListenerImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
@@ -16,7 +20,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SocketIOConfig {
 
-    private final SocketIOAuthHandler authHandler;
+    private final AuthTokenListenerImpl authTokenListenerImpl;
 
     @Value("${socketio.server.host:localhost}")
     private String host;
@@ -38,12 +42,12 @@ public class SocketIOConfig {
         config.setPingInterval(25000);
         config.setUpgradeTimeout(10000);
 
-        // Enable auth support with our custom handler
-        // This mimics Node.js: socket.handshake.auth.token and socket.handshake.auth.sessionId
-        config.setAuthorizationListener(authHandler);
+        config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
 
         log.info("Socket.IO server configured on {}:{} with Node.js compatible auth", host, port);
-        return new SocketIOServer(config);
+        var socketIOServer = new SocketIOServer(config);
+        socketIOServer.getNamespace(Namespace.DEFAULT_NAME).addAuthTokenListener(authTokenListenerImpl);
+        return socketIOServer;
     }
 
     @Component

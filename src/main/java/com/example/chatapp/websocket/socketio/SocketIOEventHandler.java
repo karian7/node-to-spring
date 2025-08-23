@@ -34,67 +34,67 @@ public class SocketIOEventHandler {
     @PostConstruct
     public void initialize() {
         socketIOServer.addConnectListener(client -> {
-            try {
-                String userId = getUserIdFromClient(client);
-                String sessionId = getSessionIdFromClient(client);
-
-                if (userId != null) {
-                    // 기존 연결이 있다면 종료 (중복 로그인 방지)
-                    SocketIOClient existingClient = connectedUsers.get(userId);
-                    if (existingClient != null && !existingClient.getSessionId().equals(client.getSessionId())) {
-                        log.info("중복 로그인 감지, 기존 연결 종료: {}", userId);
-                        existingClient.sendEvent("force-disconnect", "다른 곳에서 로그인되었습니다.");
-                        existingClient.disconnect();
-                    }
-
-                    connectedUsers.put(userId, client);
-                    client.set("userId", userId);
-                    client.set("sessionId", sessionId);
-
-                    // 사용자 온라인 상태 알림
-                    notificationService.broadcastUserStatusChange(userId, "online");
-
-                    log.info("사용자 연결: {} (세션: {})", userId, sessionId);
-                    client.sendEvent("connected", "연결되었습니다.");
-                } else {
-                    log.warn("인증되지 않은 연결 시도: {}", client.getSessionId());
-                    client.sendEvent("auth-error", "인증이 필요합니다.");
-                    client.disconnect();
-                }
-
-            } catch (Exception e) {
-                log.error("클라이언트 연결 중 에러 발생", e);
-                client.sendEvent("connection-error", "연결 중 오류가 발생했습니다.");
-                client.disconnect();
-            }
+//            try {
+//                String userId = getUserIdFromClient(client);
+//                String sessionId = getSessionIdFromClient(client);
+//
+//                if (userId != null) {
+//                    // 기존 연결이 있다면 종료 (중복 로그인 방지)
+//                    SocketIOClient existingClient = connectedUsers.get(userId);
+//                    if (existingClient != null && !existingClient.getSessionId().equals(client.getSessionId())) {
+//                        log.info("중복 로그인 감지, 기존 연결 종료: {}", userId);
+//                        existingClient.sendEvent("force-disconnect", "다른 곳에서 로그인되었습니다.");
+//                        existingClient.disconnect();
+//                    }
+//
+//                    connectedUsers.put(userId, client);
+//                    client.set("userId", userId);
+//                    client.set("sessionId", sessionId);
+//
+//                    // 사용자 온라인 상태 알림
+//                    notificationService.broadcastUserStatusChange(userId, "online");
+//
+//                    log.info("사용자 연결: {} (세션: {})", userId, sessionId);
+//                    client.sendEvent("connected", "연결되었습니다.");
+//                } else {
+//                    log.warn("인증되지 않은 연결 시도: {}", client.getSessionId());
+//                    client.sendEvent("auth-error", "인증이 필요합니다.");
+//                    client.disconnect();
+//                }
+//
+//            } catch (Exception e) {
+//                log.error("클라이언트 연결 중 에러 발생", e);
+//                client.sendEvent("connection-error", "연결 중 오류가 발생했습니다.");
+//                client.disconnect();
+//            }
         });
         socketIOServer.addDisconnectListener(client -> {
-            try {
-                String userId = client.get("userId");
-                String currentRoom = userRooms.get(userId);
-
-                if (userId != null) {
-                    // 룸에서 나가기
-                    if (currentRoom != null) {
-                        client.leaveRoom(currentRoom);
-                        userRooms.remove(userId);
-
-                        // 룸 참여자들에게 사용자 나감 알림
-                        socketIOServer.getRoomOperations(currentRoom)
-                                .sendEvent("user-left", userId);
-                    }
-
-                    connectedUsers.remove(userId);
-
-                    // 사용자 오프라인 상태 알림
-                    notificationService.broadcastUserStatusChange(userId, "offline");
-
-                    log.info("사용자 연결 해제: {}", userId);
-                }
-
-            } catch (Exception e) {
-                log.error("클라이언트 연결 해제 중 에러 발생", e);
-            }
+//            try {
+//                String userId = client.get("userId");
+//                String currentRoom = userRooms.get(userId);
+//
+//                if (userId != null) {
+//                    // 룸에서 나가기
+//                    if (currentRoom != null) {
+//                        client.leaveRoom(currentRoom);
+//                        userRooms.remove(userId);
+//
+//                        // 룸 참여자들에게 사용자 나감 알림
+//                        socketIOServer.getRoomOperations(currentRoom)
+//                                .sendEvent("user-left", userId);
+//                    }
+//
+//                    connectedUsers.remove(userId);
+//
+//                    // 사용자 오프라인 상태 알림
+//                    notificationService.broadcastUserStatusChange(userId, "offline");
+//
+//                    log.info("사용자 연결 해제: {}", userId);
+//                }
+//
+//            } catch (Exception e) {
+//                log.error("클라이언트 연결 해제 중 에러 발생", e);
+//            }
         });
 
         // 메시지 관련 이벤트
