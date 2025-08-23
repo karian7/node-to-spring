@@ -217,8 +217,8 @@ public class RoomController {
 
             Room room = roomOpt.get();
 
-            User user = userRepository.findByEmail(principal.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
             // 참여중이 아닌 경우
             if (!room.getParticipantIds().contains(user.getId())) {
@@ -261,8 +261,8 @@ public class RoomController {
 
             Room room = roomOpt.get();
 
-            User user = userRepository.findByEmail(principal.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
             // 방장인지 확인
             if (!room.getCreator().equals(user.getId())) {
@@ -282,8 +282,8 @@ public class RoomController {
     @GetMapping("/my-rooms")
     public ResponseEntity<?> getMyRooms(Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
             // 사용자가 참여중인 채팅방 조회
             List<Room> myRooms = roomRepository.findByParticipantIdsContaining(user.getId());
@@ -321,8 +321,8 @@ public class RoomController {
     @GetMapping("/created-by-me")
     public ResponseEntity<?> getMyCreatedRooms(Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
             // 사용자가 생성한 채팅방 조회
             List<Room> createdRooms = roomRepository.findByCreator(user.getId());
@@ -352,7 +352,7 @@ public class RoomController {
                 .map(UserResponse::from)
                 .collect(Collectors.toList());
 
-        boolean isCreator = principal != null && creator.getEmail().equals(principal.getName());
+        boolean isCreator = principal != null && room.getCreator().equals(principal.getName());
 
         return new RoomResponse(
                 room.getId(),

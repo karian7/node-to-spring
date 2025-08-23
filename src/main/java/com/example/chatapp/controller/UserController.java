@@ -30,8 +30,8 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getCurrentUserProfile(Principal principal) {
-        User user = userRepository.findByEmail(principal.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+        User user = userRepository.findById(principal.getName())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
         UserResponse profileResponse = UserResponse.from(user);
         return ResponseEntity.ok(profileResponse);
@@ -39,8 +39,8 @@ public class UserController {
 
     @PutMapping("/me")
     public ResponseEntity<UserResponse> updateCurrentUserProfile(Principal principal, @Valid @RequestBody UpdateProfileRequest updateRequest) {
-        User user = userRepository.findByEmail(principal.getName())
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+        User user = userRepository.findById(principal.getName())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
         user.setName(updateRequest.getName());
         User updatedUser = userRepository.save(user);
@@ -54,8 +54,8 @@ public class UserController {
     @PostMapping("/me/profile-image")
     public ResponseEntity<?> uploadProfileImage(Principal principal, @RequestParam("file") MultipartFile file) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
 
             // 파일 업로드 처리
             String profileImageUrl = fileService.storeFile(file);
@@ -87,7 +87,7 @@ public class UserController {
             Pageable pageable = PageRequest.of(page, size);
 
             // 현재 사용자 제외하고 검색
-            Page<User> userPage = userRepository.findByNameContainingIgnoreCaseAndEmailNot(
+            Page<User> userPage = userRepository.findByNameContainingIgnoreCaseAndIdNot(
                     query, principal.getName(), pageable);
 
             List<UserResponse> users = userPage.getContent().stream()
@@ -121,7 +121,7 @@ public class UserController {
             Pageable pageable = PageRequest.of(page, size);
 
             // 현재 사용자 제외하고 모든 사용자 조회
-            Page<User> userPage = userRepository.findByEmailNot(principal.getName(), pageable);
+            Page<User> userPage = userRepository.findByIdNot(principal.getName(), pageable);
 
             List<UserResponse> userSummaries = userPage.getContent().stream()
                     .map(UserResponse::from)

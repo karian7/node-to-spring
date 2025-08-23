@@ -14,7 +14,9 @@ public interface UserRepository extends MongoRepository<User, String> {
 
     // 사용자 검색 (이름으로 검색, 현재 사용자 제외)
     Page<User> findByNameContainingIgnoreCaseAndEmailNot(String name, String excludeEmail, Pageable pageable);
+    Page<User> findByNameContainingIgnoreCaseAndIdNot(String name, String excludeId, Pageable pageable);
 
     // 모든 사용자 조회 (현재 사용자 제외)
     Page<User> findByEmailNot(String excludeEmail, Pageable pageable);
+    Page<User> findByIdNot(String excludeId, Pageable pageable);
 }

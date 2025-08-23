@@ -36,7 +36,7 @@ public class MessageController {
     @PostMapping
     public ResponseEntity<?> sendMessage(@Valid @RequestBody MessageRequest messageRequest, Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             MessageResponse savedMessage = messageService.createMessage(
@@ -88,7 +88,7 @@ public class MessageController {
             @RequestParam(required = false) String deviceId,
             Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             messageService.markMessageAsRead(messageId, user.getId(), deviceId);
@@ -113,7 +113,7 @@ public class MessageController {
             @RequestParam(required = false) String deviceId,
             Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             messageService.markAllMessagesAsRead(roomId, user.getId(), deviceId);
@@ -136,7 +136,7 @@ public class MessageController {
             @RequestBody MessageRequest messageRequest,
             Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             MessageResponse updatedMessage = messageService.editMessage(
@@ -160,7 +160,7 @@ public class MessageController {
     @DeleteMapping("/{messageId}")
     public ResponseEntity<?> deleteMessage(@PathVariable String messageId, Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             messageService.deleteMessage(messageId, user.getId());
@@ -182,7 +182,7 @@ public class MessageController {
     @PostMapping("/{messageId}/pin")
     public ResponseEntity<?> toggleMessagePin(@PathVariable String messageId, Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             MessageResponse pinnedMessage = messageService.toggleMessagePin(messageId, user.getId());
@@ -207,7 +207,7 @@ public class MessageController {
     @GetMapping("/room/{roomId}/unread-count")
     public ResponseEntity<?> getUnreadMessageCount(@PathVariable String roomId, Principal principal) {
         try {
-            User user = userRepository.findByEmail(principal.getName())
+            User user = userRepository.findById(principal.getName())
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + principal.getName()));
 
             long unreadCount = messageService.getUnreadMessageCount(roomId, user.getId());

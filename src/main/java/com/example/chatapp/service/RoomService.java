@@ -162,7 +162,7 @@ public class RoomService {
     }
 
     public Room createRoom(CreateRoomRequest createRoomRequest, Principal principal) {
-        User creator = userRepository.findByEmail(principal.getName())
+        User creator = userRepository.findById(principal.getName())
             .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + principal.getName()));
 
         Room room = new Room();
@@ -189,7 +189,7 @@ public class RoomService {
         }
 
         Room room = roomOpt.get();
-        User user = userRepository.findByEmail(principal.getName())
+        User user = userRepository.findById(principal.getName())
             .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + principal.getName()));
 
         // 비밀번호 확인
@@ -241,7 +241,7 @@ public class RoomService {
             .participantsCount(participants.size())
             .createdAt(room.getCreatedAt() != null ? room.getCreatedAt() : LocalDateTime.now())
             .isCreator(creator != null && principal != null &&
-                creator.getEmail().equals(principal.getName()))
+                creator.getId().equals(principal.getName()))
             .build();
     }
 }
