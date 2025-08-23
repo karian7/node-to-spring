@@ -2,6 +2,9 @@ package com.example.chatapp.websocket.socketio.handler;
 
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.listener.DataListener;
+import com.example.chatapp.dto.FileResponse;
+import com.example.chatapp.dto.MessageResponse;
+import com.example.chatapp.dto.UserResponse;
 import com.example.chatapp.model.*;
 import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.MessageRepository;
@@ -14,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -126,9 +130,8 @@ public class ChatMessageHandler {
                 }
 
                 // JavaScript 버전과 동일한 구조로 브로드캐스트
-                Map<String, Object> messageResponse = createMessageResponse(savedMessage, sender);
-                socketIOServer.getRoomOperations("room:" + roomId)
-                        .sendEvent("message", messageResponse);
+                var roomOperations = socketIOServer.getRoomOperations("room:" + roomId);
+                roomOperations.sendEvent("message", createMessageResponse(savedMessage, sender));
 
                 // AI 멘션이 있는 경우 AI 응답 생성 (JavaScript 버전과 동일)
                 if (!aiMentions.isEmpty()) {
@@ -214,45 +217,24 @@ public class ChatMessageHandler {
     }
 
     // JavaScript 버전과 동일한 구조의 응답 생성
-    private Map<String, Object> createMessageResponse(Message message, User sender) {
-        Map<String, Object> response = new java.util.HashMap<>();
-        response.put("_id", message.getId());
-        response.put("room", message.getRoomId());
-        response.put("content", message.getContent());
-        response.put("type", message.getType().toString().toLowerCase());
-        response.put("timestamp", message.getTimestamp());
-        response.put("reactions", message.getReactions() != null ? message.getReactions() : new java.util.HashMap<>());
+    private MessageResponse createMessageResponse(Message message, User sender) {
+        var messageResponse = new MessageResponse();
+        messageResponse.setId(message.getId());
+        messageResponse.setRoomId(message.getRoomId());
+        messageResponse.setContent(message.getContent());
+        messageResponse.setType(message.getType());
+        messageResponse.setTimestamp(message.getTimestamp());
+        messageResponse.setReactions(message.getReactions() != null ? message.getReactions() : Collections.emptyMap());
+        messageResponse.setSender(UserResponse.from(sender));
 
-        // sender 정보 추가
-        if (sender != null) {
-            Map<String, Object> senderInfo = new java.util.HashMap<>();
-            senderInfo.put("_id", sender.getId());
-            senderInfo.put("name", sender.getName());
-            senderInfo.put("email", sender.getEmail());
-            senderInfo.put("profileImage", sender.getProfileImage());
-            response.put("sender", senderInfo);
-        }
-
-        // file 정보 추가
         if (message.getFileId() != null) {
-            com.example.chatapp.model.File file = fileRepository.findById(message.getFileId()).orElse(null);
-            if (file != null) {
-                Map<String, Object> fileInfo = new java.util.HashMap<>();
-                fileInfo.put("_id", file.getId());
-                fileInfo.put("filename", file.getFilename());
-                fileInfo.put("originalname", file.getOriginalname());
-                fileInfo.put("mimetype", file.getMimetype());
-                fileInfo.put("size", file.getSize());
-                response.put("file", fileInfo);
-            }
+            fileRepository.findById(message.getFileId())
+                    .ifPresent(file -> messageResponse.setFile(FileResponse.from(file)));
         }
 
-        // metadata 추가
-        if (message.getMetadata() != null) {
-            response.put("metadata", message.getMetadata());
-        }
+        messageResponse.setMetadata(message.getMetadata());
 
-        return response;
+        return messageResponse;
     }
 
     private void handleAIResponse(String roomId, String aiType, String query) {

@@ -54,6 +54,11 @@ public class SocketIOChatHandler {
     private final Map<String, Boolean> messageQueues = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageLoadRetries = new ConcurrentHashMap<>();
 
+    // User rooms management (similar to Node.js userRooms)
+    private final Map<String, String> userRooms = new ConcurrentHashMap<>(); // userId -> roomId
+    // Streaming sessions management (similar to Node.js streamingSessions)
+    private final Map<String, StreamingSession> streamingSessions = new ConcurrentHashMap<>();
+
     // 노드 버전과 동일한 상수들
     private static final int BATCH_SIZE = 30;
     private static final int LOAD_DELAY = 300;
@@ -176,35 +181,114 @@ public class SocketIOChatHandler {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
                 String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
 
-                User user = userRepository.findById(userId).orElse(null);
-                if (user == null) {
-                    client.sendEvent("error", "User not found");
+                if (userId == null) {
+                    client.sendEvent("joinRoomError", Map.of("message", "Unauthorized"));
                     return;
                 }
 
+                // 이미 해당 방에 참여 중인지 확인
+                String currentRoom = userRooms.get(userId);
+                if (roomId.equals(currentRoom)) {
+                    log.debug("User {} already in room {}", userId, roomId);
+                    client.joinRoom("room:" + roomId);
+                    client.sendEvent("joinRoomSuccess", Map.of("roomId", roomId));
+                    return;
+                }
+
+                // 기존 방에서 나가기
+                if (currentRoom != null) {
+                    log.debug("User {} leaving current room {}", userId, currentRoom);
+                    client.leaveRoom("room:" + currentRoom);
+                    userRooms.remove(userId);
+
+                    // 기존 방에 퇴장 알림
+                    socketIOServer.getRoomOperations("room:" + currentRoom)
+                        .sendEvent("userLeft", Map.of(
+                            "userId", userId,
+                            "name", userName
+                        ));
+                }
+
+                User user = userRepository.findById(userId).orElse(null);
+                if (user == null) {
+                    client.sendEvent("joinRoomError", Map.of("message", "User not found"));
+                    return;
+                }
+
+                // 채팅방 참가 with profileImage
                 Room room = roomRepository.findById(roomId).orElse(null);
                 if (room == null) {
-                    client.sendEvent("error", "Room not found: " + roomId);
+                    client.sendEvent("joinRoomError", Map.of("message", "채팅방을 찾을 수 없습니다."));
                     return;
                 }
 
                 room.getParticipantIds().add(userId);
-                roomRepository.save(room);
+                room = roomRepository.save(room);
 
                 // Join socket room
                 client.joinRoom("room:" + roomId);
+                userRooms.put(userId, roomId);
 
-                log.info("User {} joined room {}", userName, room.getName());
+                // 입장 메시지 생성
+                Message joinMessage = Message.builder()
+                    .roomId(roomId)
+                    .content(userName + "이 입장하였습니다.")
+                    .type(MessageType.SYSTEM)
+                    .timestamp(LocalDateTime.now())
+                    .build();
 
-                // Send system message (same as Node.js)
-                sendSystemMessage(roomId, userName + "님이 입장하였습니다.");
+                joinMessage = messageRepository.save(joinMessage);
 
-                // Broadcast updated participant list
-                broadcastParticipantList(roomId);
+                // 초기 메시지 로드
+                FetchMessagesResponse messageLoadResult = loadInitialMessages(roomId);
+
+                // 참가자 정보 조회 (with profileImage)
+                List<User> participantUsers = userRepository.findAllById(room.getParticipantIds());
+                List<UserDto> participants = participantUsers.stream()
+                    .map(this::mapToUserDto)
+                    .collect(Collectors.toList());
+
+                // 활성 스트리밍 메시지 조회
+                List<ActiveStreamResponse> activeStreams = streamingSessions.values().stream()
+                    .filter(session -> roomId.equals(session.getRoomId()))
+                    .map(session -> ActiveStreamResponse.builder()
+                        .id(session.getMessageId())
+                        .type("ai")
+                        .aiType(session.getAiType())
+                        .content(session.getContent())
+                        .timestamp(session.getTimestamp())
+                        .isStreaming(true)
+                        .build())
+                    .collect(Collectors.toList());
+
+                // joinRoomSuccess 이벤트 발송
+                JoinRoomSuccessResponse response = JoinRoomSuccessResponse.builder()
+                    .roomId(roomId)
+                    .participants(participants)
+                    .messages(messageLoadResult.getMessages())
+                    .hasMore(messageLoadResult.isHasMore())
+                    .oldestTimestamp(messageLoadResult.getOldestTimestamp())
+                    .activeStreams(activeStreams)
+                    .build();
+
+                client.sendEvent("joinRoomSuccess", response);
+
+                // 입장 메시지 브로드캐스트
+                socketIOServer.getRoomOperations("room:" + roomId)
+                    .sendEvent("message", mapToMessageResponse(joinMessage, null));
+
+                // 참가자 목록 업데이트 브로드캐스트
+                socketIOServer.getRoomOperations("room:" + roomId)
+                    .sendEvent("participantsUpdate", participants);
+
+                log.info("User {} joined room {} successfully. Message count: {}, hasMore: {}",
+                    userName, roomId, messageLoadResult.getMessages().size(), messageLoadResult.isHasMore());
 
             } catch (Exception e) {
                 log.error("Error handling joinRoom", e);
-                client.sendEvent("error", "방 입장 중 오류가 발생했습니다.");
+                client.sendEvent("joinRoomError", Map.of(
+                    "message", e.getMessage() != null ? e.getMessage() : "채팅방 입장에 실패했습���다."
+                ));
             }
         };
     }
@@ -554,7 +638,7 @@ public class SocketIOChatHandler {
                 }
 
                 // 실제 메시지 로드 로직
-                Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").descending());
+                Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").ascending());
                 LocalDateTime beforeTime = before != null ? before : LocalDateTime.now();
 
                 Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(
@@ -726,5 +810,68 @@ public class SocketIOChatHandler {
         }
 
         return builder.build();
+    }
+
+    // 초기 메시지 로드 메서드 (Node.js의 loadMessages와 동일)
+    private FetchMessagesResponse loadInitialMessages(String roomId) {
+        try {
+            Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").descending());
+
+            Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(
+                    roomId, LocalDateTime.now(), pageable);
+
+            List<Message> messages = messagePage.getContent();
+
+            // hasMore 계산 (Node.js와 동일한 로직)
+            boolean hasMore = messages.size() > BATCH_SIZE;
+            List<Message> resultMessages = messages.size() > BATCH_SIZE ?
+                messages.subList(0, BATCH_SIZE) : messages;
+
+            // 시간순으로 정렬 (Node.js와 동일)
+            List<Message> sortedMessages = resultMessages.stream()
+                .sorted((a, b) -> a.getTimestamp().compareTo(b.getTimestamp()))
+                .collect(Collectors.toList());
+
+            // 사용자 정보 조회
+            Set<String> senderIds = sortedMessages.stream()
+                    .map(Message::getSenderId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            Map<String, User> userMap = userRepository.findAllById(senderIds).stream()
+                    .collect(Collectors.toMap(User::getId, user -> user));
+
+            // 메시지 응답 생성
+            List<MessageResponse> messageResponses = sortedMessages.stream()
+                    .map(message -> mapToMessageResponse(message, userMap.get(message.getSenderId())))
+                    .collect(Collectors.toList());
+
+            LocalDateTime oldestTimestamp = !sortedMessages.isEmpty() ?
+                sortedMessages.get(0).getTimestamp() : null;
+
+            return FetchMessagesResponse.builder()
+                .messages(messageResponses)
+                .hasMore(hasMore)
+                .oldestTimestamp(oldestTimestamp)
+                .build();
+
+        } catch (Exception e) {
+            log.error("Error loading initial messages for room {}", roomId, e);
+            return FetchMessagesResponse.builder()
+                .messages(new java.util.ArrayList<>())
+                .hasMore(false)
+                .oldestTimestamp(null)
+                .build();
+        }
+    }
+
+    // User를 UserDto로 변환하는 헬퍼 메서드
+    private UserDto mapToUserDto(User user) {
+        return UserDto.builder()
+            .id(user.getId())
+            .name(user.getName())
+            .email(user.getEmail())
+            .profileImage(user.getProfileImage())
+            .build();
     }
 }

@@ -3,6 +3,7 @@ package com.example.chatapp.dto;
 import com.example.chatapp.model.AiType;
 import com.example.chatapp.model.Message;
 import com.example.chatapp.model.MessageType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,6 +19,7 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MessageResponse {
+    @JsonProperty("_id")
     private String id;
     private String roomId;
     private String content;
