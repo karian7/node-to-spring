@@ -1,7 +1,7 @@
 package com.example.chatapp.controller;
 
 import com.example.chatapp.dto.UpdateProfileRequest;
-import com.example.chatapp.dto.UserProfileResponse;
+import com.example.chatapp.dto.UserResponse;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +48,7 @@ public class UserControllerTest {
     void testGetCurrentUserProfile() {
         when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(user));
 
-        ResponseEntity<UserProfileResponse> response = userController.getCurrentUserProfile(principal);
+        ResponseEntity<UserResponse> response = userController.getCurrentUserProfile(principal);
 
         assertEquals(200, response.getStatusCodeValue());
         assertEquals("Test User", response.getBody().getName());
@@ -65,7 +65,7 @@ public class UserControllerTest {
             return savedUser;
         });
 
-        ResponseEntity<UserProfileResponse> response = userController.updateCurrentUserProfile(principal, request);
+        ResponseEntity<UserResponse> response = userController.updateCurrentUserProfile(principal, request);
 
         assertEquals(200, response.getStatusCodeValue());
         assertEquals("New Name", response.getBody().getName());

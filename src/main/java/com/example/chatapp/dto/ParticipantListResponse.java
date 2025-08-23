@@ -4,6 +4,6 @@ import java.util.List;
 
 public record ParticipantListResponse(
     String roomId,
-    List<UserSummaryResponse> participants
+    List<UserResponse> participants
 ) {
 }

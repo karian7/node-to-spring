@@ -5,7 +5,7 @@ import java.util.List;
 public record UserSearchResponse(
     boolean success,
     String message,
-    List<UserSummaryResponse> users,
+    List<UserResponse> users,
     int totalPages,
     long totalElements,
     int currentPage

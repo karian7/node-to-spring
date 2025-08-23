@@ -1,5 +1,6 @@
 package com.example.chatapp.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,11 +14,12 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RoomResponse {
+    @JsonProperty("_id")
     private String id;
     private String name;
     private boolean hasPassword;
-    private UserSummaryResponse creator;
-    private List<UserSummaryResponse> participants;
+    private UserResponse creator;
+    private List<UserResponse> participants;
     private int participantsCount;
     private LocalDateTime createdAt;
     private boolean isCreator;

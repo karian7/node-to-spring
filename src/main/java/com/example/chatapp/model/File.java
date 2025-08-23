@@ -32,6 +32,12 @@ public class File {
     @Field("uploadedBy")
     private String uploadedBy;
 
+    @Field("roomId")
+    private String roomId;
+
+    @Field("ragProcessed")
+    private boolean ragProcessed = false;
+
     @CreatedDate
     private LocalDateTime uploadedAt;
 }

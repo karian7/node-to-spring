@@ -5,7 +5,9 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.example.chatapp.websocket.socketio.SocketIOAuthHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
@@ -19,7 +21,7 @@ public class SocketIOConfig {
     @Value("${socketio.server.host:localhost}")
     private String host;
 
-    @Value("${socketio.server.port:9092}")
+    @Value("${socketio.server.port:5002}")
     private Integer port;
 
     @Bean
@@ -43,4 +45,29 @@ public class SocketIOConfig {
         log.info("Socket.IO server configured on {}:{} with Node.js compatible auth", host, port);
         return new SocketIOServer(config);
     }
+
+    @Component
+    @RequiredArgsConstructor
+    @Slf4j
+    public static class SocketIOServerRunner implements CommandLineRunner, DisposableBean {
+
+        private final SocketIOServer socketIOServer;
+
+        @Override
+        public void run(String... args) {
+            socketIOServer.start();
+            log.info("Socket.IO server started successfully on port {}",
+                    socketIOServer.getConfiguration().getPort());
+        }
+
+        @Override
+        public void destroy() {
+            if (socketIOServer != null) {
+                socketIOServer.stop();
+                log.info("Socket.IO server stopped");
+            }
+        }
+    }
+
 }
+

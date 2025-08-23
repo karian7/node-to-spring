@@ -29,32 +29,24 @@ public class UserController {
     private final FileService fileService;
 
     @GetMapping("/me")
-    public ResponseEntity<UserProfileResponse> getCurrentUserProfile(Principal principal) {
+    public ResponseEntity<UserResponse> getCurrentUserProfile(Principal principal) {
         User user = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
 
-        UserProfileResponse profileResponse = new UserProfileResponse(
-                user.getId(),
-                user.getName(),
-                user.getEmail(),
-                user.getProfileImage()
-        );
+        UserResponse profileResponse = UserResponse.from(user);
         return ResponseEntity.ok(profileResponse);
     }
 
     @PutMapping("/me")
-    public ResponseEntity<UserProfileResponse> updateCurrentUserProfile(Principal principal, @Valid @RequestBody UpdateProfileRequest updateRequest) {
+    public ResponseEntity<UserResponse> updateCurrentUserProfile(Principal principal, @Valid @RequestBody UpdateProfileRequest updateRequest) {
         User user = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + principal.getName()));
 
         user.setName(updateRequest.getName());
         User updatedUser = userRepository.save(user);
 
-        UserProfileResponse profileResponse = new UserProfileResponse(
-                updatedUser.getId(),
-                updatedUser.getName(),
-                updatedUser.getEmail(),
-                updatedUser.getProfileImage()
+        UserResponse profileResponse = UserResponse.from(
+                updatedUser
         );
         return ResponseEntity.ok(profileResponse);
     }
@@ -72,11 +64,8 @@ public class UserController {
             user.setProfileImage(profileImageUrl);
             User updatedUser = userRepository.save(user);
 
-            UserProfileResponse profileResponse = new UserProfileResponse(
-                    updatedUser.getId(),
-                    updatedUser.getName(),
-                    updatedUser.getEmail(),
-                    updatedUser.getProfileImage()
+            UserResponse profileResponse = UserResponse.from(
+                    updatedUser
             );
 
             return ResponseEntity.ok(profileResponse);
@@ -101,18 +90,14 @@ public class UserController {
             Page<User> userPage = userRepository.findByNameContainingIgnoreCaseAndEmailNot(
                     query, principal.getName(), pageable);
 
-            List<UserSummaryResponse> userSummaries = userPage.getContent().stream()
-                    .map(user -> new UserSummaryResponse(
-                            user.getId(),
-                            user.getName(),
-                            user.getEmail(),
-                            user.getProfileImage()))
+            List<UserResponse> users = userPage.getContent().stream()
+                    .map(UserResponse::from)
                     .collect(Collectors.toList());
 
             UserSearchResponse searchResponse = new UserSearchResponse(
                     true,
                     "사용자 검색 완료",
-                    userSummaries,
+                    users,
                     userPage.getTotalPages(),
                     userPage.getTotalElements(),
                     page
@@ -138,12 +123,8 @@ public class UserController {
             // 현재 사용자 제외하고 모든 사용자 조회
             Page<User> userPage = userRepository.findByEmailNot(principal.getName(), pageable);
 
-            List<UserSummaryResponse> userSummaries = userPage.getContent().stream()
-                    .map(user -> new UserSummaryResponse(
-                            user.getId(),
-                            user.getName(),
-                            user.getEmail(),
-                            user.getProfileImage()))
+            List<UserResponse> userSummaries = userPage.getContent().stream()
+                    .map(UserResponse::from)
                     .collect(Collectors.toList());
 
             UserSearchResponse usersResponse = new UserSearchResponse(
@@ -174,14 +155,7 @@ public class UserController {
             }
 
             User user = userOpt.get();
-            UserProfileResponse profileResponse = new UserProfileResponse(
-                    user.getId(),
-                    user.getName(),
-                    user.getEmail(),
-                    user.getProfileImage()
-            );
-
-            return ResponseEntity.ok(profileResponse);
+            return ResponseEntity.ok(UserResponse.from(user));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

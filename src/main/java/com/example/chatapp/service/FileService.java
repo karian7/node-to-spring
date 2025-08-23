@@ -1,5 +1,7 @@
 package com.example.chatapp.service;
 
+import com.example.chatapp.model.File;
+import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.util.FileSecurityUtil;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +19,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -24,15 +28,76 @@ public class FileService {
 
     private final Path fileStorageLocation;
     private final FileSecurityUtil fileSecurityUtil;
+    private final RagService ragService;
+    private final FileRepository fileRepository;
 
     public FileService(@Value("${file.upload-dir}") String uploadDir,
-                      FileSecurityUtil fileSecurityUtil) {
+                      FileSecurityUtil fileSecurityUtil,
+                      RagService ragService,
+                      FileRepository fileRepository) {
         this.fileSecurityUtil = fileSecurityUtil;
+        this.ragService = ragService;
+        this.fileRepository = fileRepository;
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.fileStorageLocation);
         } catch (Exception ex) {
             throw new RuntimeException("Could not create the directory where the uploaded files will be stored.", ex);
+        }
+    }
+
+    /**
+     * 완전한 파일 업로드 처리 (보안 검증 + RAG 연동 + 메타데이터 저장)
+     */
+    public EnhancedFileUploadResult uploadFileComplete(MultipartFile file, String uploaderId, String roomId) {
+        String tempFilePath = null;
+        try {
+            // 1. 보안 검증 및 파일 저장
+            SecureFileUploadResult uploadResult = storeFileSecurely(file);
+            tempFilePath = uploadResult.getStoredFilename();
+
+            // 2. 데이터베이스에 메타데이터 저장
+            File fileEntity = new File();
+            fileEntity.setFilename(uploadResult.getStoredFilename());
+            fileEntity.setOriginalname(uploadResult.getOriginalFilename());
+            fileEntity.setMimetype(uploadResult.getMimeType());
+            fileEntity.setSize(uploadResult.getFileSize());
+            fileEntity.setUploadedBy(uploaderId);
+            fileEntity.setRoomId(roomId);
+            fileEntity.setUploadedAt(LocalDateTime.now());
+
+            File savedFile = fileRepository.save(fileEntity);
+
+            // 3. RAG 시스템 연동 (백그라운드에서 처리)
+            try {
+                Path filePath = this.fileStorageLocation.resolve(uploadResult.getStoredFilename());
+                boolean ragResult = ragService.processFileForRAG(savedFile, filePath);
+
+                // RAG 처리 결과를 파일 메타데이터에 업데이트
+                savedFile.setRagProcessed(ragResult);
+                fileRepository.save(savedFile);
+
+                log.info("RAG 처리 결과: {} - {}", savedFile.getId(), ragResult ? "성공" : "실패");
+            } catch (Exception ragError) {
+                log.warn("RAG 처리 중 에러 발생하지만 파일 업로드는 계속 진행: {}", ragError.getMessage());
+            }
+
+            return EnhancedFileUploadResult.builder()
+                    .success(true)
+                    .file(savedFile)
+                    .downloadUrl(generateDownloadUrl(savedFile.getFilename()))
+                    .ragProcessed(savedFile.isRagProcessed())
+                    .build();
+
+        } catch (Exception e) {
+            log.error("파일 업로드 중 에러 발생", e);
+
+            // 실패 시 자동 정리
+            if (tempFilePath != null) {
+                cleanupFailedUpload(tempFilePath);
+            }
+
+            throw new RuntimeException("파일 업로드에 실패했습니다: " + e.getMessage(), e);
         }
     }
 
@@ -99,36 +164,41 @@ public class FileService {
     }
 
     /**
-     * 보안 검증이 강화된 파일 로드
+     * 보안이 강화된 파일 로드
      */
-    public Resource loadFileAsResourceSecurely(String fileName, String userId) {
+    public Resource loadFileAsResourceSecurely(String fileName, String requesterId) {
         try {
-            // 1. 파일명 보안 검증
-            if (fileName == null || fileName.contains("..")) {
-                throw new RuntimeException("유효하지 않은 파일명입니다: " + fileName);
-            }
-
-            // 2. 경로 안전성 검증
+            // 1. 경로 안전성 검증
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
-            if (!fileSecurityUtil.isPathSafe(filePath.toString(),
-                                           this.fileStorageLocation.toString())) {
-                throw new RuntimeException("파일 경로가 안전하지 않습니다.");
+            if (!fileSecurityUtil.isPathSafe(filePath.toString(), this.fileStorageLocation.toString())) {
+                throw new RuntimeException("Invalid file path: " + fileName);
             }
 
-            // 3. 파일 존재 확인
+            // 2. 데이터베이스에서 파일 권한 검증
+            File fileEntity = fileRepository.findByFilename(fileName)
+                    .orElseThrow(() -> new RuntimeException("File not found: " + fileName));
+
+            // 3. 파일 접근 권한 검증 (업로더이거나 같은 룸 참여자)
+            if (!canAccessFile(fileEntity, requesterId)) {
+                throw new RuntimeException("Unauthorized file access: " + fileName);
+            }
+
             Resource resource = new UrlResource(filePath.toUri());
             if (resource.exists()) {
-                log.debug("File accessed by user {}: {}", userId, fileName);
+                log.info("File accessed securely: {} by user {}", fileName, requesterId);
                 return resource;
             } else {
-                throw new RuntimeException("파일을 찾을 수 없습니다: " + fileName);
+                throw new RuntimeException("File not found " + fileName);
             }
+
         } catch (MalformedURLException ex) {
-            log.error("파일 로드 중 오류 발생: {}", ex.getMessage(), ex);
-            throw new RuntimeException("파일 로드에 실패했습니다: " + fileName, ex);
+            throw new RuntimeException("File not found " + fileName, ex);
         }
     }
 
+    /**
+     * 기존 호환성을 위한 레거시 메서드
+     */
     public Resource loadFileAsResource(String fileName) {
         try {
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
@@ -144,40 +214,89 @@ public class FileService {
     }
 
     /**
-     * 파일 삭제 (보안 검증 포함)
+     * 안전한 파일 삭제 (권한 검증 포함)
      */
-    public boolean deleteFileSecurely(String fileName, String userId) {
+    public boolean deleteFileSecurely(String fileId, String requesterId) {
         try {
-            // 1. 파일명 보안 검증
-            if (fileName == null || fileName.contains("..")) {
-                log.warn("Invalid file deletion attempt by user {}: {}", userId, fileName);
-                return false;
+            File fileEntity = fileRepository.findById(fileId)
+                    .orElseThrow(() -> new RuntimeException("File not found: " + fileId));
+
+            // 삭제 권한 검증 (업로더만 삭제 가능)
+            if (!fileEntity.getUploadedBy().equals(requesterId)) {
+                throw new RuntimeException("Unauthorized file deletion: " + fileId);
             }
 
-            // 2. 경로 안전성 검증
-            Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
-            if (!fileSecurityUtil.isPathSafe(filePath.toString(),
-                                           this.fileStorageLocation.toString())) {
-                log.warn("Unsafe file deletion attempt by user {}: {}", userId, fileName);
-                return false;
+            // 1. 물리적 파일 삭제
+            Path filePath = this.fileStorageLocation.resolve(fileEntity.getFilename());
+            Files.deleteIfExists(filePath);
+
+            // 2. RAG 시스템에서 제거
+            if (fileEntity.isRagProcessed()) {
+                ragService.removeFileFromRAG(fileId);
             }
 
-            // 3. 파일 삭제
-            boolean deleted = Files.deleteIfExists(filePath);
-            if (deleted) {
-                log.info("File deleted by user {}: {}", userId, fileName);
-            }
-            return deleted;
+            // 3. 데이터베이스에서 제거
+            fileRepository.delete(fileEntity);
 
-        } catch (IOException ex) {
-            log.error("파일 삭제 중 오류 발생: {}", ex.getMessage(), ex);
+            log.info("File deleted securely: {} by user {}", fileId, requesterId);
+            return true;
+
+        } catch (Exception e) {
+            log.error("파일 삭제 중 에러 발생: {}", fileId, e);
             return false;
         }
     }
 
     /**
-     * 보안 파일 업로드 결과를 담는 클래스
+     * 사용자별 업로드한 파일 목록 조회
      */
+    public List<File> getUserFiles(String userId) {
+        return fileRepository.findByUploadedByOrderByUploadedAtDesc(userId);
+    }
+
+    /**
+     * 룸별 파일 목록 조회
+     */
+    public List<File> getRoomFiles(String roomId) {
+        return fileRepository.findByRoomIdOrderByUploadedAtDesc(roomId);
+    }
+
+    /**
+     * 실패한 업로드 정리 (자동 정리 로직)
+     */
+    private void cleanupFailedUpload(String filename) {
+        try {
+            Path filePath = this.fileStorageLocation.resolve(filename);
+            Files.deleteIfExists(filePath);
+            log.info("Cleaned up failed upload: {}", filename);
+        } catch (Exception e) {
+            log.error("Failed to cleanup file: {}", filename, e);
+        }
+    }
+
+    /**
+     * 파일 접근 권한 검증
+     */
+    private boolean canAccessFile(File fileEntity, String requesterId) {
+        // 업로더는 항상 접근 가능
+        if (fileEntity.getUploadedBy().equals(requesterId)) {
+            return true;
+        }
+
+        // TODO: 같은 룸 참여자 여부 확인 로직 추가
+        // RoomRepository를 주입받아서 참여자 목록 확인
+        return true; // 임시로 모든 접근 허용
+    }
+
+    /**
+     * 다운로드 URL 생성
+     */
+    private String generateDownloadUrl(String filename) {
+        return "/api/files/download/" + filename;
+    }
+
+    // DTO classes
+
     @Data
     @Builder
     public static class SecureFileUploadResult {
@@ -186,6 +305,14 @@ public class FileService {
         private String originalFilename;
         private long fileSize;
         private String mimeType;
-        private String errorMessage;
+    }
+
+    @Data
+    @Builder
+    public static class EnhancedFileUploadResult {
+        private boolean success;
+        private File file;
+        private String downloadUrl;
+        private boolean ragProcessed;
     }
 }

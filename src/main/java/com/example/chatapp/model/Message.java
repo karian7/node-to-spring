@@ -50,11 +50,33 @@ public class Message {
 
     private Map<String, Set<String>> reactions;
 
-    // 읽음 상태 관리를 위한 readers 필드 추가
+    // 메시지 읽음 상태 관리 필드들 추가
     @Builder.Default
     private List<MessageReader> readers = new ArrayList<>();
 
-    // 읽음 상태 관리를 위한 내부 클래스
+    private LocalDateTime editedAt;
+
+    private String replyToMessageId;
+
+    @Builder.Default
+    private boolean isPinned = false;
+
+    private LocalDateTime pinnedAt;
+
+    private String pinnedBy;
+
+    // AI 응답 관련 필드들
+    private String aiPrompt;
+
+    private AiMetadata aiMetadata;
+
+    // 파일 첨부 관련 추가 정보
+    @Builder.Default
+    private List<String> attachments = new ArrayList<>();
+    private FileMetadata metadata;
+
+
+    // 메시지 읽음 상태를 나타내는 내부 클래스
     @Data
     @Builder
     @NoArgsConstructor
@@ -62,60 +84,21 @@ public class Message {
     public static class MessageReader {
         private String userId;
         private LocalDateTime readAt;
+        private String deviceId; // 멀티 디바이스 지원
     }
 
-    // 사용자가 메시지를 읽었는지 확인하는 메서드
-    public boolean isReadBy(String userId) {
-        return readers.stream()
-                .anyMatch(reader -> reader.getUserId().equals(userId));
-    }
-
-    // 사용자의 읽음 상태를 추가하는 메서드
-    public void markAsReadBy(String userId) {
-        if (!isReadBy(userId)) {
-            readers.add(MessageReader.builder()
-                    .userId(userId)
-                    .readAt(LocalDateTime.now())
-                    .build());
-        }
-    }
-
-    // 메시지를 읽은 사용자 수를 반환하는 메서드
-    public int getReadCount() {
-        return readers.size();
-    }
-
-    // AI 메타데이터 getter/setter
-    public AiMetadata getAiMetadata() {
-        return aiMetadata;
-    }
-
-    public void setAiMetadata(AiMetadata aiMetadata) {
-        this.aiMetadata = aiMetadata;
-    }
-
-    private FileMetadata metadata;
-
-    private AiMetadata aiMetadata;
-
-    @Data
     @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class FileMetadata {
-        private String fileType;
+        private String fileName;
         private long fileSize;
-        private String originalName;
+        private String fileType;
+        private String url; // 파일 접근 URL
+        private String originalName; // 원본 파일 이름
     }
 
-    @Data
     @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class AiMetadata {
         private String query;
         private long generationTime;
-        private Integer completionTokens;
-        private Integer totalTokens;
     }
 }
