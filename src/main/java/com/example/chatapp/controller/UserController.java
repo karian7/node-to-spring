@@ -1,0 +1,165 @@
+package com.example.chatapp.controller;
+
+import com.example.chatapp.dto.*;
+import com.example.chatapp.model.User;
+import com.example.chatapp.repository.UserRepository;
+import com.example.chatapp.service.FileService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.security.Principal;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    private final UserRepository userRepository;
+    private final FileService fileService;
+
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getCurrentUserProfile(Principal principal) {
+        User user = userRepository.findById(principal.getName())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
+
+        UserResponse profileResponse = UserResponse.from(user);
+        return ResponseEntity.ok(profileResponse);
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<UserResponse> updateCurrentUserProfile(Principal principal, @Valid @RequestBody UpdateProfileRequest updateRequest) {
+        User user = userRepository.findById(principal.getName())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
+
+        user.setName(updateRequest.getName());
+        User updatedUser = userRepository.save(user);
+
+        UserResponse profileResponse = UserResponse.from(
+                updatedUser
+        );
+        return ResponseEntity.ok(profileResponse);
+    }
+
+    @PostMapping("/me/profile-image")
+    public ResponseEntity<?> uploadProfileImage(Principal principal, @RequestParam("file") MultipartFile file) {
+        try {
+            User user = userRepository.findById(principal.getName())
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + principal.getName()));
+
+            // 파일 업로드 처리
+            String profileImageUrl = fileService.storeFile(file);
+
+            // 사용자 프로필 이미지 URL 업데이트
+            user.setProfileImage(profileImageUrl);
+            User updatedUser = userRepository.save(user);
+
+            UserResponse profileResponse = UserResponse.from(
+                    updatedUser
+            );
+
+            return ResponseEntity.ok(profileResponse);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(false, "프로필 이미지 업로드에 실패했습니다: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<?> searchUsers(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            Principal principal) {
+
+        try {
+            Pageable pageable = PageRequest.of(page, size);
+
+            // 현재 사용자 제외하고 검색
+            Page<User> userPage = userRepository.findByNameContainingIgnoreCaseAndIdNot(
+                    query, principal.getName(), pageable);
+
+            List<UserResponse> users = userPage.getContent().stream()
+                    .map(UserResponse::from)
+                    .collect(Collectors.toList());
+
+            UserSearchResponse searchResponse = new UserSearchResponse(
+                    true,
+                    "사용자 검색 완료",
+                    users,
+                    userPage.getTotalPages(),
+                    userPage.getTotalElements(),
+                    page
+            );
+
+            return ResponseEntity.ok(searchResponse);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(false, "사용자 검색 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping
+    public ResponseEntity<?> getAllUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Principal principal) {
+
+        try {
+            Pageable pageable = PageRequest.of(page, size);
+
+            // 현재 사용자 제외하고 모든 사용자 조회
+            Page<User> userPage = userRepository.findByIdNot(principal.getName(), pageable);
+
+            List<UserResponse> userSummaries = userPage.getContent().stream()
+                    .map(UserResponse::from)
+                    .collect(Collectors.toList());
+
+            UserSearchResponse usersResponse = new UserSearchResponse(
+                    true,
+                    "사용자 목록 조회 완료",
+                    userSummaries,
+                    userPage.getTotalPages(),
+                    userPage.getTotalElements(),
+                    page
+            );
+
+            return ResponseEntity.ok(usersResponse);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(false, "사용자 목록 조회 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<?> getUserProfile(@PathVariable String userId, Principal principal) {
+        try {
+            Optional<User> userOpt = userRepository.findById(userId);
+
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(new ErrorResponse(false, "사용자를 찾을 수 없습니다."));
+            }
+
+            User user = userOpt.get();
+            return ResponseEntity.ok(UserResponse.from(user));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(false, "사용자 프로필 조회 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+}
