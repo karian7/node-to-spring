@@ -5,12 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * Response DTO for joinRoomSuccess event
- * Matches Node.js backend's joinRoomSuccess response structure
+ * joinRoomSuccess 이벤트 응답 DTO.
  */
 @Data
 @NoArgsConstructor
@@ -18,9 +16,9 @@ import java.util.List;
 @Builder
 public class JoinRoomSuccessResponse {
     private String roomId;
-    private List<UserDto> participants;
+    private List<UserResponse> participants;
     private List<MessageResponse> messages;
     private boolean hasMore;
-    private LocalDateTime oldestTimestamp;
+    private String oldestTimestamp;  // ISO_INSTANT 형식 문자열
     private List<ActiveStreamResponse> activeStreams;
 }

@@ -5,7 +5,6 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.namespace.Namespace;
 import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
 import com.example.chatapp.websocket.socketio.AuthTokenListenerImpl;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,17 +33,28 @@ public class SocketIOConfig {
         config.setHostname(host);
         config.setPort(port);
 
-        // CORS settings
-        config.setOrigin("*");
+        String allowedOrigins = String.join(",",
+                "https://bootcampchat-fe.run.goorm.site",
+                "https://bootcampchat-hgxbv.dev-k8s.arkain.io",
+                "http://localhost:3000",
+                "http://localhost:3001",
+                "http://localhost:3002",
+                "https://localhost:3000",
+                "https://localhost:3001",
+                "https://localhost:3002",
+                "http://0.0.0.0:3000",
+                "https://0.0.0.0:3000"
+        );
+        config.setOrigin(allowedOrigins);
 
-        // Socket.IO settings (same as Node.js backend)
+        // Socket.IO settings
         config.setPingTimeout(60000);
         config.setPingInterval(25000);
         config.setUpgradeTimeout(10000);
 
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
 
-        log.info("Socket.IO server configured on {}:{} with Node.js compatible auth", host, port);
+        log.info("Socket.IO server configured on {}:{} with CORS origins: {}", host, port, allowedOrigins);
         var socketIOServer = new SocketIOServer(config);
         socketIOServer.getNamespace(Namespace.DEFAULT_NAME).addAuthTokenListener(authTokenListenerImpl);
         return socketIOServer;

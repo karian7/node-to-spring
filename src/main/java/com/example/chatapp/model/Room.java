@@ -1,5 +1,6 @@
 package com.example.chatapp.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,6 +30,7 @@ public class Room {
 
     private boolean hasPassword;
 
+    @JsonIgnore
     private String password;
 
     @CreatedDate

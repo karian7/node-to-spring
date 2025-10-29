@@ -2,7 +2,6 @@ package com.example.chatapp.websocket.socketio;
 
 import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
-import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
 import com.example.chatapp.dto.*;
@@ -14,13 +13,15 @@ import com.example.chatapp.repository.FileRepository;
 import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
+import com.example.chatapp.util.JwtUtil;
 import com.example.chatapp.websocket.socketio.handler.ChatMessageHandler;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.ZoneId;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,7 @@ import static com.example.chatapp.websocket.socketio.SocketIOEvents.*;
 
 /**
  * Socket.IO Chat Handler
- * Mimics Node.js backend's chat.js functionality with identical event names and auth handling
+ * 이벤트 이름과 인증 흐름을 정의한다.
  */
 @Slf4j
 @Component
@@ -47,33 +48,34 @@ public class SocketIOChatHandler {
     private final UserRepository userRepository;
     private final FileRepository fileRepository;
     private final ChatMessageHandler chatMessageHandler;
+    private final JwtUtil jwtUtil;
 
-    // Online users management (similar to Node.js connectedUsers)
+    // Online users management
     private final Map<String, String> connectedUsers = new ConcurrentHashMap<>(); // userId -> socketId
     private final Map<String, SocketIOClient> socketClients = new ConcurrentHashMap<>(); // socketId -> client
 
     private final Map<String, Boolean> messageQueues = new ConcurrentHashMap<>();
     private final Map<String, Integer> messageLoadRetries = new ConcurrentHashMap<>();
 
-    // User rooms management (similar to Node.js userRooms)
+    // User rooms management
     private final Map<String, String> userRooms = new ConcurrentHashMap<>(); // userId -> roomId
-    // Streaming sessions management (similar to Node.js streamingSessions)
-    private final Map<String, StreamingSession> streamingSessions = new ConcurrentHashMap<>();
+    private final Map<String, PendingDuplicateLogin> pendingDuplicateLogins = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService duplicateLoginScheduler = Executors.newSingleThreadScheduledExecutor();
 
-    // 노드 버전과 동일한 상수들
+    // 이벤트 처리 관련 상수
     private static final int BATCH_SIZE = 30;
     private static final int LOAD_DELAY = 300;
     private static final int MAX_RETRIES = 3;
     private static final int RETRY_DELAY = 2000;
     private static final int DUPLICATE_LOGIN_TIMEOUT = 10000;
+    private static final int MESSAGE_LOAD_TIMEOUT = 10000;
 
     @PostConstruct
     public void initializeEventHandlers() {
-        // Connection event (similar to Node.js io.on('connection'))
-        socketIOServer.addConnectListener(onConnect());
+        // Connection event 핸들러 등록
         socketIOServer.addDisconnectListener(onDisconnect());
 
-        // Chat events (same as Node.js backend) - Object로 타입 변경
+        // Chat events 핸들러 등록
         socketIOServer.addEventListener(CHAT_MESSAGE, Map.class, chatMessageHandler.getListener());
         socketIOServer.addEventListener(JOIN_ROOM, String.class, onJoinRoom());
         socketIOServer.addEventListener(LEAVE_ROOM, String.class, onLeaveRoom());
@@ -81,77 +83,109 @@ public class SocketIOChatHandler {
         socketIOServer.addEventListener(MARK_MESSAGES_AS_READ, MarkAsReadRequest.class, onMarkMessagesAsRead());
         socketIOServer.addEventListener(MESSAGE_REACTION, MessageReactionRequest.class, onMessageReaction());
         socketIOServer.addEventListener(FORCE_LOGIN, Map.class, onForceLogin());
+        socketIOServer.addEventListener(KEEP_EXISTING_SESSION, Map.class, onKeepExistingSession());
 
         log.info("Socket.IO event handlers initialized");
     }
 
-    private ConnectListener onConnect() {
-        return client -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
-
-                if (userId != null) {
-                    // Handle duplicate connections (similar to Node.js handleDuplicateLogin)
-                    String existingSocketId = connectedUsers.get(userId);
-                    if (existingSocketId != null) {
-                        SocketIOClient existingClient = socketClients.get(existingSocketId);
-                        if (existingClient != null) {
-                            // Send duplicate login notification
-                            existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
+    @PreDestroy
+    public void shutdownScheduler() {
+        duplicateLoginScheduler.shutdownNow();
+    }
+    
+    public void onConnect(SocketIOClient client) {
+        try {
+            String userId = getUserId(client);
+            String userName = getUserName(client);
+            
+            if (userId != null) {
+                // Handle duplicate connections
+                String existingSocketId = connectedUsers.get(userId);
+                String newSocketId = client.getSessionId().toString();
+                if (existingSocketId != null) {
+                    SocketIOClient existingClient = socketClients.get(existingSocketId);
+                    if (existingClient != null) {
+                        // Send duplicate login notification
+                        existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
                                 "type", "new_login_attempt",
                                 "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
                                 "ipAddress", client.getRemoteAddress().toString(),
                                 "timestamp", System.currentTimeMillis()
-                            ));
-
-                            // Disconnect existing client after delay
-                            new Thread(() -> {
-                                try {
-                                    Thread.sleep(DUPLICATE_LOGIN_TIMEOUT); // 10 second delay like Node.js
-                                    existingClient.sendEvent(SESSION_ENDED, Map.of(
+                        ));
+                        
+                        PendingDuplicateLogin previousPending = pendingDuplicateLogins.remove(userId);
+                        if (previousPending != null) {
+                            previousPending.cancelTimeout();
+                        }
+                        
+                        PendingDuplicateLogin pending = new PendingDuplicateLogin(existingClient, existingSocketId, client, newSocketId);
+                        ScheduledFuture<?> timeoutTask = duplicateLoginScheduler.schedule(() -> {
+                            try {
+                                existingClient.sendEvent(SESSION_ENDED, Map.of(
                                         "reason", "duplicate_login",
                                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
-                                    ));
-                                    existingClient.disconnect();
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            }).start();
-                        }
+                                ));
+                                existingClient.disconnect();
+                            } finally {
+                                pendingDuplicateLogins.remove(userId, pending);
+                            }
+                        }, DUPLICATE_LOGIN_TIMEOUT, TimeUnit.MILLISECONDS);
+                        pending.setTimeoutTask(timeoutTask);
+                        pendingDuplicateLogins.put(userId, pending);
                     }
-
-                    // Store new connection
-                    connectedUsers.put(userId, client.getSessionId().toString());
-                    socketClients.put(client.getSessionId().toString(), client);
-
-                    log.info("Socket.IO user connected: {} ({})", userName, userId);
-
-                    // Join user to their personal room for direct messages
-                    client.joinRoom("user:" + userId);
-
                 }
-            } catch (Exception e) {
-                log.error("Error handling Socket.IO connection", e);
+                
+                // Store new connection
+                connectedUsers.put(userId, newSocketId);
+                socketClients.put(newSocketId, client);
+                
+                log.info("Socket.IO user connected: {} ({})", userName, userId);
+                
+                // Join user to their personal room for direct messages
+                client.joinRoom("user:" + userId);
+                
             }
-        };
+        } catch (Exception e) {
+            log.error("Error handling Socket.IO connection", e);
+            client.sendEvent(ERROR, Map.of(
+                    "message", "연결 처리 중 오류가 발생했습니다."
+            ));
+        }
     }
 
     private DisconnectListener onDisconnect() {
         return client -> {
             try {
                 String socketId = client.getSessionId().toString();
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
+                String userId = getUserId(client);
+                String userName = getUserName(client);
 
                 if (userId != null) {
-                    connectedUsers.remove(userId);
+                    String mappedSocketId = connectedUsers.get(userId);
+                    if (socketId.equals(mappedSocketId)) {
+                        connectedUsers.remove(userId);
+                    }
                     socketClients.remove(socketId);
+
+                    PendingDuplicateLogin pending = pendingDuplicateLogins.get(userId);
+                    if (pending != null && pending.involves(socketId)) {
+                        pending.cancelTimeout();
+                        if (socketId.equals(pending.getNewSocketId())) {
+                            String existingSocketId = pending.getExistingSocketId();
+                            if (existingSocketId != null && socketClients.containsKey(existingSocketId)) {
+                                connectedUsers.put(userId, existingSocketId);
+                            }
+                        }
+                        pendingDuplicateLogins.remove(userId, pending);
+                    }
 
                     log.info("Socket.IO user disconnected: {} ({})", userName, userId);
                 }
             } catch (Exception e) {
                 log.error("Error handling Socket.IO disconnection", e);
+                client.sendEvent(ERROR, Map.of(
+                    "message", "연결 종료 처리 중 오류가 발생했습니다."
+                ));
             }
         };
     }
@@ -160,8 +194,8 @@ public class SocketIOChatHandler {
     public DataListener<String> onJoinRoom() {
         return (client, roomId, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
+                String userId = getUserId(client);
+                String userName = getUserName(client);
 
                 if (userId == null) {
                     client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "Unauthorized"));
@@ -172,7 +206,7 @@ public class SocketIOChatHandler {
                 String currentRoom = userRooms.get(userId);
                 if (roomId.equals(currentRoom)) {
                     log.debug("User {} already in room {}", userId, roomId);
-                    client.joinRoom("room:" + roomId);
+                    client.joinRoom(roomId);
                     client.sendEvent(JOIN_ROOM_SUCCESS, Map.of("roomId", roomId));
                     return;
                 }
@@ -180,11 +214,11 @@ public class SocketIOChatHandler {
                 // 기존 방에서 나가기
                 if (currentRoom != null) {
                     log.debug("User {} leaving current room {}", userId, currentRoom);
-                    client.leaveRoom("room:" + currentRoom);
+                    client.leaveRoom(currentRoom);
                     userRooms.remove(userId);
 
                     // 기존 방에 퇴장 알림
-                    socketIOServer.getRoomOperations("room:" + currentRoom)
+                    socketIOServer.getRoomOperations(currentRoom)
                         .sendEvent(USER_LEFT, Map.of(
                             "userId", userId,
                             "name", userName
@@ -204,43 +238,62 @@ public class SocketIOChatHandler {
                     return;
                 }
 
-                room.getParticipantIds().add(userId);
-                room = roomRepository.save(room);
+                roomRepository.addParticipant(roomId, userId);
+                room = roomRepository.findById(roomId).orElse(null);
+                if (room == null) {
+                    client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
+                    return;
+                }
 
                 // Join socket room
-                client.joinRoom("room:" + roomId);
+                client.joinRoom(roomId);
                 userRooms.put(userId, roomId);
 
-                // 입장 메시지 생성
                 Message joinMessage = Message.builder()
                     .roomId(roomId)
-                    .content(userName + "이 입장하였습니다.")
-                    .type(MessageType.SYSTEM)
+                    .content(userName + "님이 입장하였습니다.")
+                    .type(MessageType.system)
                     .timestamp(LocalDateTime.now())
+                    .mentions(new ArrayList<>())
+                    .isDeleted(false)
+                    .reactions(new HashMap<>())
+                    .readers(new ArrayList<>())
+                    .metadata(new HashMap<>())
                     .build();
 
                 joinMessage = messageRepository.save(joinMessage);
 
                 // 초기 메시지 로드
-                FetchMessagesResponse messageLoadResult = loadInitialMessages(roomId);
+                FetchMessagesResponse messageLoadResult = loadInitialMessages(roomId, userId);
 
                 // 참가자 정보 조회 (with profileImage)
                 List<User> participantUsers = userRepository.findAllById(room.getParticipantIds());
-                List<UserDto> participants = participantUsers.stream()
-                    .map(this::mapToUserDto)
+                List<UserResponse> participants = participantUsers.stream()
+                    .map(UserResponse::from)
                     .collect(Collectors.toList());
 
                 // 활성 스트리밍 메시지 조회
-                List<ActiveStreamResponse> activeStreams = streamingSessions.values().stream()
+                List<ActiveStreamResponse> activeStreams = chatMessageHandler.getStreamingSessions().stream()
                     .filter(session -> roomId.equals(session.getRoomId()))
-                    .map(session -> ActiveStreamResponse.builder()
-                        .id(session.getMessageId())
-                        .type("ai")
-                        .aiType(session.getAiType())
-                        .content(session.getContent())
-                        .timestamp(session.getTimestamp())
-                        .isStreaming(true)
-                        .build())
+                    .map(session -> {
+                        // LocalDateTime을 ISO_INSTANT 형식으로 변환
+                        String timestampStr = null;
+                        if (session.getTimestamp() != null) {
+                            Instant instant = session.getTimestamp()
+                                .atZone(ZoneId.systemDefault())
+                                .toInstant();
+                            timestampStr = instant.toString();
+                        }
+                        
+                        return ActiveStreamResponse.builder()
+                            .id(session.getMessageId())
+                            .type("ai")
+                            .aiType(session.getAiType())
+                            .content(session.getContent())
+                            .timestamp(timestampStr)
+                            .isStreaming(true)
+                            .build();
+                    })
                     .collect(Collectors.toList());
 
                 // joinRoomSuccess 이벤트 발송
@@ -256,11 +309,11 @@ public class SocketIOChatHandler {
                 client.sendEvent(JOIN_ROOM_SUCCESS, response);
 
                 // 입장 메시지 브로드캐스트
-                socketIOServer.getRoomOperations("room:" + roomId)
+                socketIOServer.getRoomOperations(roomId)
                     .sendEvent(MESSAGE, mapToMessageResponse(joinMessage, null));
 
                 // 참가자 목록 업데이트 브로드캐스트
-                socketIOServer.getRoomOperations("room:" + roomId)
+                socketIOServer.getRoomOperations(roomId)
                     .sendEvent(PARTICIPANTS_UPDATE, participants);
 
                 log.info("User {} joined room {} successfully. Message count: {}, hasMore: {}",
@@ -278,8 +331,19 @@ public class SocketIOChatHandler {
     public DataListener<String> onLeaveRoom() {
         return (client, roomId, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
+                String userId = getUserId(client);
+                String userName = getUserName(client);
+
+                if (userId == null) {
+                    client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+                    return;
+                }
+
+                String currentRoom = userRooms.get(userId);
+                if (currentRoom == null || !currentRoom.equals(roomId)) {
+                    log.debug("User {} is not in room {}", userId, roomId);
+                    return;
+                }
 
                 User user = userRepository.findById(userId).orElse(null);
                 Room room = roomRepository.findById(roomId).orElse(null);
@@ -288,30 +352,44 @@ public class SocketIOChatHandler {
                     room.getParticipantIds().remove(userId);
                     roomRepository.save(room);
 
-                    // Leave socket room
-                    client.leaveRoom("room:" + roomId);
+                    client.leaveRoom(roomId);
+                    userRooms.remove(userId);
 
                     log.info("User {} left room {}", userName, room.getName());
 
-                    // Send system message
-                    sendSystemMessage(roomId, userName + "님이 퇴장하였습니다.");
+                    boolean removedStreams = chatMessageHandler.terminateStreamingSessions(roomId, userId);
 
-                    // Broadcast updated participant list
+                    String queueKey = roomId + ":" + userId;
+                    Boolean queueRemoved = messageQueues.remove(queueKey);
+                    Integer retryRemoved = messageLoadRetries.remove(queueKey);
+
+                    log.debug("Leave room cleanup - roomId: {}, userId: {}, streamsCleared: {}, queueCleared: {}, retriesCleared: {}",
+                        roomId, userId, removedStreams, queueRemoved != null, retryRemoved != null);
+
+                    sendSystemMessage(roomId, userName + "님이 퇴장하였습니다.");
                     broadcastParticipantList(roomId);
+
+                    // 빈 방 정리
+                    if (room.getParticipantIds().isEmpty()) {
+                        log.info("Room {} is now empty, deleting room", roomId);
+                        roomRepository.deleteById(roomId);
+                    }
+                } else {
+                    log.warn("Room {} not found or user {} has no access", roomId, userId);
                 }
 
             } catch (Exception e) {
                 log.error("Error handling leaveRoom", e);
-                client.sendEvent(ERROR, "방 퇴장 중 오류가 발생했습니다.");
+                client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
             }
         };
     }
 
-    // 향상된 메시지 로드 기능 (노드 버전과 동일)
+    // 향상된 메시지 로드 기능
     private DataListener<FetchMessagesRequest> onFetchPreviousMessagesWithRetry() {
         return (client, data, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                String userId = getUserId(client);
                 String queueKey = data.roomId() + ":" + userId;
 
                 // 이미 로드 중인지 확인
@@ -324,7 +402,7 @@ public class SocketIOChatHandler {
                 Room room = roomRepository.findById(data.roomId()).orElse(null);
                 if (room == null || !room.getParticipantIds().contains(userId)) {
                     client.sendEvent(ERROR, Map.of(
-                            "type", "LOAD_ERROR",
+                            "code", "LOAD_ERROR",
                             "message", "채팅방 접근 권한이 없습니다."
                     ));
                     return;
@@ -357,7 +435,7 @@ public class SocketIOChatHandler {
                         .exceptionally(throwable -> {
                             log.error("Message load failed for user {} in room {}", userId, data.roomId(), throwable);
                             client.sendEvent(ERROR, Map.of(
-                                    "type", "LOAD_ERROR",
+                                    "code", "LOAD_ERROR",
                                     "message", throwable.getMessage() != null ? throwable.getMessage() : "이전 메시지를 불러오는 중 오류가 발생했습니다."
                             ));
                             messageQueues.remove(queueKey);
@@ -367,7 +445,7 @@ public class SocketIOChatHandler {
             } catch (Exception e) {
                 log.error("Error handling fetchPreviousMessages", e);
                 client.sendEvent(ERROR, Map.of(
-                        "type", "LOAD_ERROR",
+                        "code", "LOAD_ERROR",
                         "message", "메시지 로드 중 오류가 발생했습니다."
                 ));
             }
@@ -377,39 +455,67 @@ public class SocketIOChatHandler {
     private DataListener<MarkAsReadRequest> onMarkMessagesAsRead() {
         return (client, data, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                String userId = getUserId(client);
+                if (userId == null) {
+                    client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+                    return;
+                }
+
+                if (data == null || data.getMessageIds() == null || data.getMessageIds().isEmpty()) {
+                    return;
+                }
+                
+                var roomId = messageRepository.findById(data.getMessageIds().getFirst())
+                        .map(Message::getRoomId).orElse(null);
+                
+                if (roomId == null || roomId.isBlank()) {
+                    client.sendEvent(ERROR, Map.of("message", "Invalid room"));
+                    return;
+                }
 
                 User user = userRepository.findById(userId).orElse(null);
-                if (user == null) return;
+                if (user == null) {
+                    client.sendEvent(ERROR, Map.of("message", "User not found"));
+                    return;
+                }
 
-                List<Message> messages = messageRepository.findAllById(data.getMessageIds());
+                Room room = roomRepository.findById(roomId).orElse(null);
+                if (room == null || !room.getParticipantIds().contains(userId)) {
+                    client.sendEvent(ERROR, Map.of("message", "Room access denied"));
+                    return;
+                }
 
                 Message.MessageReader readerInfo = Message.MessageReader.builder()
                         .userId(userId)
                         .readAt(LocalDateTime.now())
                         .build();
 
-                messages.forEach(message -> {
-                    if (message.getReaders() == null) {
-                        message.setReaders(new java.util.ArrayList<>());
-                    }
-                    boolean alreadyRead = message.getReaders().stream()
-                            .anyMatch(r -> r.getUserId().equals(userId));
-                    if (!alreadyRead) {
-                        message.getReaders().add(readerInfo);
-                    }
-                });
+                long modifiedCount = messageRepository.addReaderToMessages(
+                        data.getMessageIds(),
+                        roomId,
+                        userId,
+                        readerInfo
+                );
 
-                messageRepository.saveAll(messages);
+                if (modifiedCount == 0) {
+                    log.debug("No messages marked as read - roomId: {}, userId: {}", roomId, userId);
+                    return;
+                }
+
+                log.debug("Messages marked as read - roomId: {}, userId: {}, modified: {}",
+                    roomId, userId, modifiedCount);
 
                 MessagesReadResponse response = new MessagesReadResponse(userId, data.getMessageIds());
 
                 // Broadcast to room
-                socketIOServer.getRoomOperations("room:" + data.getRoomId())
+                socketIOServer.getRoomOperations(roomId)
                         .sendEvent(MESSAGES_READ, response);
 
             } catch (Exception e) {
                 log.error("Error handling markMessagesAsRead", e);
+                client.sendEvent(ERROR, Map.of(
+                        "message", "읽음 상태 업데이트 중 오류가 발생했습니다."
+                ));
             }
         };
     }
@@ -417,37 +523,62 @@ public class SocketIOChatHandler {
     private DataListener<MessageReactionRequest> onMessageReaction() {
         return (client, data, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                String userId = getUserId(client);
+                if (userId == null || userId.isBlank()) {
+                    client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+                    return;
+                }
 
                 Message message = messageRepository.findById(data.getMessageId()).orElse(null);
-                if (message == null) return;
+                if (message == null) {
+                    client.sendEvent(ERROR, Map.of("message", "메시지를 찾을 수 없습니다."));
+                    return;
+                }
 
                 if (message.getReactions() == null) {
                     message.setReactions(new java.util.HashMap<>());
                 }
 
+                boolean changed = false;
                 if ("add".equals(data.getType())) {
-                    message.getReactions()
-                            .computeIfAbsent(data.getReaction(), k -> new java.util.HashSet<>())
-                            .add(userId);
+                    java.util.Set<String> userReactions = message.getReactions()
+                        .computeIfAbsent(data.getReaction(), key -> new java.util.HashSet<>());
+                    changed = userReactions.add(userId);
                 } else if ("remove".equals(data.getType())) {
-                    message.getReactions()
-                            .computeIfPresent(data.getReaction(), (k, v) -> {
-                                v.remove(userId);
-                                return v.isEmpty() ? null : v;
-                            });
+                    java.util.Set<String> userReactions = message.getReactions().get(data.getReaction());
+                    if (userReactions != null && userReactions.remove(userId)) {
+                        changed = true;
+                        if (userReactions.isEmpty()) {
+                            message.getReactions().remove(data.getReaction());
+                        }
+                    }
+                } else {
+                    client.sendEvent(ERROR, Map.of("message", "지원하지 않는 리액션 타입입니다."));
+                    return;
                 }
+
+                if (!changed) {
+                    return;
+                }
+
+                log.debug("Message reaction processed - type: {}, reaction: {}, messageId: {}, userId: {}",
+                    data.getType(), data.getReaction(), message.getId(), userId);
 
                 messageRepository.save(message);
 
-                MessageReactionResponse response = new MessageReactionResponse(message.getId(), message.getReactions());
+                MessageReactionResponse response = new MessageReactionResponse(
+                    message.getId(),
+                    message.getReactions()
+                );
 
-                // Broadcast to room
-                socketIOServer.getRoomOperations("room:" + message.getRoomId())
-                        .sendEvent(MESSAGE_REACTION_UPDATE, response);
+                socketIOServer.getRoomOperations(message.getRoomId())
+                    .sendEvent(MESSAGE_REACTION_UPDATE, response);
 
             } catch (Exception e) {
                 log.error("Error handling messageReaction", e);
+                client.sendEvent(ERROR, Map.of(
+                    "message", "리액션 처리 중 오류가 발생했습니다."
+                ));
             }
         };
     }
@@ -457,20 +588,37 @@ public class SocketIOChatHandler {
     private DataListener<Map> onForceLogin() {
         return (client, data, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                String userId = getUserId(client);
                 if (userId == null) return;
 
                 // data를 Map으로 캐스팅
                 @SuppressWarnings("unchecked")
                 Map<String, Object> requestData = (Map<String, Object>) data;
-                String token = (String) requestData.get("token");
-                if (token == null) {
-                    client.sendEvent(ERROR, "Invalid token");
+                String token = requestData != null ? (String) requestData.get("token") : null;
+                if (token == null || token.isBlank()) {
+                    client.sendEvent(ERROR, Map.of("message", "Invalid token"));
                     return;
                 }
 
-                // 토큰 검증 로직은 실제 JWT 검증으로 대체해야 함
-                // 여기서는 간단히 세션 종료 처리만 구현
+                try {
+                    if (!jwtUtil.validateToken(token)) {
+                        throw new IllegalArgumentException("Token validation failed");
+                    }
+
+                    String tokenUserId = jwtUtil.extractSubject(token);
+                    if (tokenUserId == null || !tokenUserId.equals(userId)) {
+                        throw new IllegalArgumentException("Token user mismatch");
+                    }
+                } catch (Exception validationError) {
+                    log.warn("Invalid token for force_login: {}", validationError.getMessage());
+                    client.sendEvent(ERROR, Map.of("message", "Invalid token"));
+                    return;
+                }
+
+                PendingDuplicateLogin pending = pendingDuplicateLogins.remove(userId);
+                if (pending != null) {
+                    pending.cancelTimeout();
+                }
 
                 // 세션 종료 처리
                 client.sendEvent(SESSION_ENDED, Map.of(
@@ -490,6 +638,114 @@ public class SocketIOChatHandler {
         };
     }
 
+    // 기존 세션 유지 처리 (노드 버전과 동일)
+    @SuppressWarnings("rawtypes")
+    private DataListener<Map> onKeepExistingSession() {
+        return (client, data, ackSender) -> {
+            try {
+                String userId = getUserId(client);
+                if (userId == null) return;
+
+                @SuppressWarnings("unchecked")
+                Map<String, Object> requestData = (Map<String, Object>) data;
+                String token = requestData != null ? (String) requestData.get("token") : null;
+                
+                if (token == null || token.isBlank()) {
+                    client.sendEvent(ERROR, Map.of("message", "Invalid token"));
+                    return;
+                }
+
+                try {
+                    if (!jwtUtil.validateToken(token)) {
+                        throw new IllegalArgumentException("Token validation failed");
+                    }
+
+                    String tokenUserId = jwtUtil.extractSubject(token);
+                    if (tokenUserId == null || !tokenUserId.equals(userId)) {
+                        throw new IllegalArgumentException("Token user mismatch");
+                    }
+                } catch (Exception validationError) {
+                    log.warn("Invalid token for keep_existing_session: {}", validationError.getMessage());
+                    client.sendEvent(ERROR, Map.of("message", "Invalid token"));
+                    return;
+                }
+
+                PendingDuplicateLogin pending = pendingDuplicateLogins.remove(userId);
+                if (pending == null) {
+                    log.debug("No pending duplicate login found for keep_existing_session - userId: {}", userId);
+                    return;
+                }
+
+                pending.cancelTimeout();
+
+                SocketIOClient newClient = pending.getNewClient();
+                if (newClient != null) {
+                    newClient.sendEvent(SESSION_ENDED, Map.of(
+                        "reason", "keep_existing",
+                        "message", "기존 세션을 유지합니다."
+                    ));
+                    socketClients.remove(pending.getNewSocketId());
+                    newClient.disconnect();
+                }
+
+                if (pending.getExistingSocketId() != null) {
+                    connectedUsers.put(userId, pending.getExistingSocketId());
+                }
+
+                log.info("Keep existing session acknowledged - userId: {}", userId);
+
+            } catch (Exception e) {
+                log.error("Keep existing session error", e);
+                client.sendEvent(ERROR, Map.of(
+                    "message", "세션 처리 중 오류가 발생했습니다."
+                ));
+            }
+        };
+    }
+
+    private static final class PendingDuplicateLogin {
+        private final SocketIOClient existingClient;
+        private final String existingSocketId;
+        private final SocketIOClient newClient;
+        private final String newSocketId;
+        private ScheduledFuture<?> timeoutTask;
+
+        private PendingDuplicateLogin(SocketIOClient existingClient, String existingSocketId,
+                                      SocketIOClient newClient, String newSocketId) {
+            this.existingClient = existingClient;
+            this.existingSocketId = existingSocketId;
+            this.newClient = newClient;
+            this.newSocketId = newSocketId;
+        }
+
+        private void setTimeoutTask(ScheduledFuture<?> timeoutTask) {
+            this.timeoutTask = timeoutTask;
+        }
+
+        private void cancelTimeout() {
+            if (timeoutTask != null) {
+                timeoutTask.cancel(true);
+            }
+        }
+
+        private boolean involves(String socketId) {
+            return socketId != null
+                && (socketId.equals(existingSocketId) || socketId.equals(newSocketId));
+        }
+
+        private String getExistingSocketId() {
+            return existingSocketId;
+        }
+
+        private String getNewSocketId() {
+            return newSocketId;
+        }
+
+        private SocketIOClient getNewClient() {
+            return newClient;
+        }
+    }
+
     // 헬퍼 메서드들
     private java.util.concurrent.CompletableFuture<FetchMessagesResponse> loadMessagesWithRetry(
             SocketIOClient client, String roomId, LocalDateTime before, String retryKey) {
@@ -501,12 +757,11 @@ public class SocketIOChatHandler {
                     throw new RuntimeException("최대 재시도 횟수를 초과했습니다.");
                 }
 
-                // 실제 메시지 로드 로직
                 Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").ascending());
                 LocalDateTime beforeTime = before != null ? before : LocalDateTime.now();
 
-                Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(
-                        roomId, beforeTime, pageable);
+                Page<Message> messagePage = messageRepository.findByRoomIdAndIsDeletedAndTimestampBefore(
+                        roomId, false, beforeTime, pageable);
 
                 List<Message> messages = messagePage.getContent();
 
@@ -526,17 +781,29 @@ public class SocketIOChatHandler {
 
                 // 읽음 상태 업데이트 (비동기)
                 if (!messages.isEmpty()) {
-                    String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                    String userId = getUserId(client);
                     if (userId != null) {
                         updateReadStatus(messages, userId);
                     }
+                }
+
+                log.debug("Fetch previous messages - roomId: {}, before: {}, count: {}, hasNext: {}",
+                    roomId, before, messageResponses.size(), messagePage.hasNext());
+
+                // oldestTimestamp를 ISO_INSTANT 형식으로 변환
+                String oldestTimestampStr = null;
+                if (!messages.isEmpty() && messages.getFirst().getTimestamp() != null) {
+                    Instant instant = messages.getFirst().getTimestamp()
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant();
+                    oldestTimestampStr = instant.toString();
                 }
 
                 messageLoadRetries.remove(retryKey);
                 return new FetchMessagesResponse(
                     messageResponses,
                     messagePage.hasNext(),
-                    !messages.isEmpty() ? messages.getFirst().getTimestamp() : null
+                    oldestTimestampStr
                 );
 
             } catch (Exception e) {
@@ -561,6 +828,19 @@ public class SocketIOChatHandler {
                 messageLoadRetries.remove(retryKey);
                 throw new RuntimeException(e.getMessage(), e);
             }
+        })
+        .orTimeout(MESSAGE_LOAD_TIMEOUT, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .exceptionally(throwable -> {
+            Throwable cause = throwable instanceof java.util.concurrent.CompletionException
+                ? throwable.getCause()
+                : throwable;
+
+            if (cause instanceof java.util.concurrent.TimeoutException timeout) {
+                log.debug("Message load timeout - roomId: {}, before: {}", roomId, before);
+                throw new RuntimeException("Message loading timed out", timeout);
+            }
+
+            throw new RuntimeException(cause);
         });
     }
 
@@ -602,13 +882,18 @@ public class SocketIOChatHandler {
             Message systemMessage = new Message();
             systemMessage.setRoomId(roomId);
             systemMessage.setContent(content);
-            systemMessage.setType(MessageType.SYSTEM);
+            systemMessage.setType(MessageType.system);
             systemMessage.setTimestamp(LocalDateTime.now());
+            systemMessage.setMentions(new ArrayList<>());
+            systemMessage.setIsDeleted(false);
+            systemMessage.setReactions(new HashMap<>());
+            systemMessage.setReaders(new ArrayList<>());
+            systemMessage.setMetadata(new HashMap<>());
 
             Message savedMessage = messageRepository.save(systemMessage);
             MessageResponse response = mapToMessageResponse(savedMessage, null);
 
-            socketIOServer.getRoomOperations("room:" + roomId)
+            socketIOServer.getRoomOperations(roomId)
                     .sendEvent(MESSAGE, response);
 
         } catch (Exception e) {
@@ -631,7 +916,7 @@ public class SocketIOChatHandler {
                         ))
                         .collect(Collectors.toList());
 
-                socketIOServer.getRoomOperations("room:" + roomId)
+                socketIOServer.getRoomOperations(roomId)
                         .sendEvent(PARTICIPANTS_UPDATE, participantList);
             }
         } catch (Exception e) {
@@ -644,11 +929,11 @@ public class SocketIOChatHandler {
                 .id(message.getId())
                 .content(message.getContent())
                 .type(message.getType())
-                .timestamp(message.getTimestamp())
+                .timestamp(message.toTimestampMillis())
                 .roomId(message.getRoomId())
                 .reactions(message.getReactions() != null ? message.getReactions() : new java.util.HashMap<>())
-                .readers(message.getReaders() != null ? message.getReaders() : new java.util.ArrayList<>())
-                .mentions(message.getMentions());
+                .readers(message.getReaders() != null ? message.getReaders() : new java.util.ArrayList<>());
+        // mentions 필드는 현재 지원하지 않는다.
 
         if (sender != null) {
             builder.sender(UserResponse.builder()
@@ -676,68 +961,102 @@ public class SocketIOChatHandler {
         return builder.build();
     }
 
-    // 초기 메시지 로드 메서드 (Node.js의 loadMessages와 동일)
-    private FetchMessagesResponse loadInitialMessages(String roomId) {
+    private FetchMessagesResponse loadInitialMessages(String roomId, String userId) {
+        java.util.concurrent.CompletableFuture<FetchMessagesResponse> future =
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").descending());
+
+                    Page<Message> messagePage = messageRepository.findByRoomIdAndIsDeletedAndTimestampBefore(
+                            roomId, false, LocalDateTime.now(), pageable);
+
+                    List<Message> messages = messagePage.getContent();
+
+                    boolean hasMore = messages.size() > BATCH_SIZE;
+                    List<Message> resultMessages = messages.size() > BATCH_SIZE
+                        ? messages.subList(0, BATCH_SIZE)
+                        : messages;
+
+                    List<Message> sortedMessages = resultMessages.stream()
+                        .sorted(java.util.Comparator.comparing(Message::getTimestamp))
+                        .toList();
+
+                    if (userId != null && !sortedMessages.isEmpty()) {
+                        java.util.concurrent.CompletableFuture.runAsync(() -> updateReadStatus(sortedMessages, userId));
+                    }
+
+                    Set<String> senderIds = sortedMessages.stream()
+                            .map(Message::getSenderId)
+                            .filter(java.util.Objects::nonNull)
+                            .collect(Collectors.toSet());
+
+                    Map<String, User> userMap = userRepository.findAllById(senderIds).stream()
+                            .collect(Collectors.toMap(User::getId, user -> user));
+
+                    List<MessageResponse> messageResponses = sortedMessages.stream()
+                            .map(message -> mapToMessageResponse(message, userMap.get(message.getSenderId())))
+                            .collect(Collectors.toList());
+
+                    // oldestTimestamp를 ISO_INSTANT 형식으로 변환
+                    String oldestTimestampStr = null;
+                    if (!sortedMessages.isEmpty() && sortedMessages.getFirst().getTimestamp() != null) {
+                        Instant instant = sortedMessages.getFirst().getTimestamp()
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant();
+                        oldestTimestampStr = instant.toString();
+                    }
+
+                    log.debug("Initial messages loaded - roomId: {}, userId: {}, count: {}, hasMore: {}",
+                        roomId, userId, messageResponses.size(), hasMore);
+
+                    return FetchMessagesResponse.builder()
+                        .messages(messageResponses)
+                        .hasMore(hasMore)
+                        .oldestTimestamp(oldestTimestampStr)
+                        .build();
+
+                } catch (Exception e) {
+                    log.error("Error loading initial messages for room {}", roomId, e);
+                    return FetchMessagesResponse.builder()
+                        .messages(new java.util.ArrayList<>())
+                        .hasMore(false)
+                        .oldestTimestamp(null)
+                        .build();
+                }
+            });
+
         try {
-            Pageable pageable = PageRequest.of(0, BATCH_SIZE, Sort.by("timestamp").descending());
-
-            Page<Message> messagePage = messageRepository.findByRoomIdAndTimestampBefore(
-                    roomId, LocalDateTime.now(), pageable);
-
-            List<Message> messages = messagePage.getContent();
-
-            // hasMore 계산 (Node.js와 동일한 로직)
-            boolean hasMore = messages.size() > BATCH_SIZE;
-            List<Message> resultMessages = messages.size() > BATCH_SIZE ?
-                messages.subList(0, BATCH_SIZE) : messages;
-
-            // 시간순으로 정렬 (Node.js와 동일)
-            List<Message> sortedMessages = resultMessages.stream()
-                .sorted(java.util.Comparator.comparing(Message::getTimestamp))
-                .toList();
-
-            // 사용자 정보 조회
-            Set<String> senderIds = sortedMessages.stream()
-                    .map(Message::getSenderId)
-                    .filter(java.util.Objects::nonNull)
-                    .collect(Collectors.toSet());
-
-            Map<String, User> userMap = userRepository.findAllById(senderIds).stream()
-                    .collect(Collectors.toMap(User::getId, user -> user));
-
-            // 메시지 응답 생성
-            List<MessageResponse> messageResponses = sortedMessages.stream()
-                    .map(message -> mapToMessageResponse(message, userMap.get(message.getSenderId())))
-                    .collect(Collectors.toList());
-
-            LocalDateTime oldestTimestamp = !sortedMessages.isEmpty() ?
-                sortedMessages.getFirst().getTimestamp() : null;
-
-            return FetchMessagesResponse.builder()
-                .messages(messageResponses)
-                .hasMore(hasMore)
-                .oldestTimestamp(oldestTimestamp)
-                .build();
-
-        } catch (Exception e) {
-            log.error("Error loading initial messages for room {}", roomId, e);
-            return FetchMessagesResponse.builder()
-                .messages(new java.util.ArrayList<>())
-                .hasMore(false)
-                .oldestTimestamp(null)
-                .build();
+            return future
+                .orTimeout(MESSAGE_LOAD_TIMEOUT, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .join();
+        } catch (java.util.concurrent.CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof java.util.concurrent.TimeoutException timeout) {
+                log.debug("Initial message load timeout - roomId: {}", roomId);
+                throw new RuntimeException("Message loading timed out", timeout);
+            }
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new RuntimeException(cause);
         }
     }
 
-    // User를 UserDto로 변환하는 헬퍼 메서드
-    private UserDto mapToUserDto(User user) {
-        return UserDto.builder()
-            .id(user.getId())
-            .name(user.getName())
-            .email(user.getEmail())
-            .profileImage(user.getProfileImage())
-            .build();
+    // client에서 UserDto 가져오는 헬퍼 메서드
+    private UserResponse getUserDto(SocketIOClient client) {
+        return client.get("user");
+    }
+    
+    // client에서 userId 가져오는 헬퍼 메서드
+    private String getUserId(SocketIOClient client) {
+        UserResponse user = getUserDto(client);
+        return user != null ? user.getId() : null;
+    }
+    
+    // client에서 userName 가져오는 헬퍼 메서드
+    private String getUserName(SocketIOClient client) {
+        UserResponse user = getUserDto(client);
+        return user != null ? user.getName() : null;
     }
     
 }
-

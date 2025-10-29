@@ -14,8 +14,10 @@ import java.time.LocalDateTime;
 public class StreamingSession {
     private String messageId;
     private String roomId;
+    private String userId;
     private String aiType;
     private String content;
     private LocalDateTime timestamp;
+    private long lastUpdate;
     private boolean isStreaming;
 }

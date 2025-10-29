@@ -6,11 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
- * Response DTO for active AI streaming sessions
- * Matches Node.js backend's activeStreams structure
+ * Active AI streaming session 응답 DTO.
  */
 @Data
 @NoArgsConstructor
@@ -22,6 +19,6 @@ public class ActiveStreamResponse {
     private String type;
     private String aiType;
     private String content;
-    private LocalDateTime timestamp;
+    private String timestamp;  // ISO_INSTANT 형식 문자열
     private boolean isStreaming;
 }

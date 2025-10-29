@@ -170,6 +170,36 @@ public class SessionService {
         }
     }
 
+    public void updateLastActivity(String userId) {
+        try {
+            if (userId == null) {
+                log.warn("updateLastActivity called with null userId");
+                return;
+            }
+
+            String sessionKey = getSessionKey(userId);
+            SessionData sessionData = getJson(sessionKey, SessionData.class);
+            if (sessionData == null) {
+                log.debug("No session found to update last activity for user: {}", userId);
+                return;
+            }
+
+            sessionData.setLastActivity(Instant.now().toEpochMilli());
+
+            boolean updated = setJson(sessionKey, sessionData, SESSION_TTL);
+            if (!updated) {
+                log.warn("Failed to persist session activity for user: {}", userId);
+                return;
+            }
+
+            redisTemplate.expire(getActiveSessionKey(userId), Duration.ofSeconds(SESSION_TTL));
+            redisTemplate.expire(getUserSessionsKey(userId), Duration.ofSeconds(SESSION_TTL));
+            redisTemplate.expire(getSessionIdKey(sessionData.getSessionId()), Duration.ofSeconds(SESSION_TTL));
+        } catch (Exception e) {
+            log.error("Failed to update session activity for user: {}", userId, e);
+        }
+    }
+
     public void removeSession(String userId, String sessionId) {
         try {
             String userSessionsKey = getUserSessionsKey(userId);
@@ -237,188 +267,6 @@ public class SessionService {
         redisTemplate.delete(getSessionIdKey(sessionId));
         redisTemplate.delete(userSessionsKey);
         redisTemplate.delete(activeSessionKey);
-    }
-
-    /**
-     * 의심스러운 세션 활동 감지
-     */
-    public SuspiciousActivityResult detectSuspiciousActivity(String userId, SessionMetadata newMetadata) {
-        try {
-            SessionData currentSession = getActiveSession(userId);
-            if (currentSession == null) {
-                return new SuspiciousActivityResult(false, "정상");
-            }
-
-            SessionMetadata currentMetadata = currentSession.getMetadata();
-            if (currentMetadata == null) {
-                return new SuspiciousActivityResult(false, "정상");
-            }
-
-            // IP 주소 변경 감지
-            boolean ipChanged = !Objects.equals(currentMetadata.getIpAddress(), newMetadata.getIpAddress());
-
-            // User-Agent 변경 감지
-            boolean userAgentChanged = !Objects.equals(currentMetadata.getUserAgent(), newMetadata.getUserAgent());
-
-            if (ipChanged && userAgentChanged) {
-                log.warn("Suspicious activity detected for user {}: IP and User-Agent both changed", userId);
-                return new SuspiciousActivityResult(true, "IP 주소와 브라우저 정보가 모두 변경됨");
-            }
-
-            if (ipChanged) {
-                log.info("IP address changed for user {}: {} -> {}",
-                        userId, currentMetadata.getIpAddress(), newMetadata.getIpAddress());
-                return new SuspiciousActivityResult(true, "IP 주소 변경 감지");
-            }
-
-            return new SuspiciousActivityResult(false, "정상");
-
-        } catch (Exception e) {
-            log.error("Error detecting suspicious activity for user: {}", userId, e);
-            return new SuspiciousActivityResult(false, "정상");
-        }
-    }
-
-    /**
-     * 세션 보안 강화: 동시 접속 제한
-     */
-    public SessionValidationResult validateSessionWithSecurity(String userId, String sessionId,
-                                                             SessionMetadata currentMetadata) {
-        try {
-            // 기본 세션 검증
-            SessionValidationResult basicResult = validateSession(userId, sessionId);
-            if (!basicResult.isValid()) {
-                return basicResult;
-            }
-
-            // 의심스러운 활동 감지
-            SuspiciousActivityResult suspiciousResult = detectSuspiciousActivity(userId, currentMetadata);
-            if (suspiciousResult.isSuspicious()) {
-                log.warn("Suspicious session activity for user {}: {}", userId, suspiciousResult.getReason());
-
-                // 의심스러운 활동 시 추가 검증 수행
-                return handleSuspiciousActivity(userId, sessionId, suspiciousResult);
-            }
-
-            return basicResult;
-
-        } catch (Exception e) {
-            log.error("Error in enhanced session validation for user: {}", userId, e);
-            return SessionValidationResult.invalid("VALIDATION_ERROR", "세션 검증 중 오류가 발생했습니다.");
-        }
-    }
-
-    /**
-     * 의심스러운 활동 처리
-     */
-    private SessionValidationResult handleSuspiciousActivity(String userId, String sessionId,
-                                                           SuspiciousActivityResult suspiciousResult) {
-        // 중요도에 따라 다른 처리
-        if (suspiciousResult.getReason().contains("IP 주소와 브라우저")) {
-            // 매우 의심스러운 경우: 세션 무효화
-            removeAllUserSessions(userId);
-            return SessionValidationResult.invalid("SUSPICIOUS_ACTIVITY",
-                "보안상의 이유로 세션이 무효화되었습니다. 다시 로그인해주세요.");
-        } else {
-            // 덜 의심스러운 경우: 경고만 로그
-            log.warn("Suspicious activity detected but session maintained: {}", suspiciousResult.getReason());
-            return SessionValidationResult.valid(getActiveSession(userId));
-        }
-    }
-
-    /**
-     * 세션 만료 시간 동적 조정
-     */
-    public void adjustSessionTTL(String userId, String sessionId, SessionActivity activity) {
-        try {
-            String sessionKey = getSessionKey(userId);
-            SessionData sessionData = getJson(sessionKey, SessionData.class);
-
-            if (sessionData == null) return;
-
-            // 활동 유형에 따른 TTL 조정
-            long newTTL = calculateDynamicTTL(activity, sessionData);
-
-            if (newTTL != SESSION_TTL) {
-                // TTL 업데이트
-                setJson(sessionKey, sessionData, newTTL);
-
-                // 관련 키들도 업데이트
-                redisTemplate.expire(getActiveSessionKey(userId), Duration.ofSeconds(newTTL));
-                redisTemplate.expire(getUserSessionsKey(userId), Duration.ofSeconds(newTTL));
-                redisTemplate.expire(getSessionIdKey(sessionId), Duration.ofSeconds(newTTL));
-
-                log.debug("Session TTL adjusted for user {}: {} seconds", userId, newTTL);
-            }
-
-        } catch (Exception e) {
-            log.error("Error adjusting session TTL for user: {}", userId, e);
-        }
-    }
-
-    /**
-     * 활동 유형에 따른 동적 TTL 계산
-     */
-    private long calculateDynamicTTL(SessionActivity activity, SessionData sessionData) {
-        switch (activity) {
-            case HIGH_SECURITY_ACTION:
-                // 중요한 작업 후에는 TTL 단축
-                return Math.min(SESSION_TTL, 30 * 60); // 최대 30분
-            case REGULAR_ACTIVITY:
-                return SESSION_TTL;
-            case EXTENDED_SESSION:
-                // 장시간 활동 시 TTL 연장
-                return SESSION_TTL * 2; // 48시간
-            default:
-                return SESSION_TTL;
-        }
-    }
-
-    /**
-     * 강제 로그아웃 (보안 목적)
-     */
-    public void forceLogout(String userId, String reason) {
-        try {
-            removeAllUserSessions(userId);
-            log.warn("Forced logout for user {}: {}", userId, reason);
-
-            // 강제 로그아웃 이벤트 기록 (필요시 별도 서비스로 분리)
-            recordSecurityEvent(userId, "FORCED_LOGOUT", reason);
-
-        } catch (Exception e) {
-            log.error("Error during forced logout for user: {}", userId, e);
-        }
-    }
-
-    /**
-     * 보안 이벤트 기록
-     */
-    private void recordSecurityEvent(String userId, String eventType, String details) {
-        try {
-            String eventKey = "security_event:" + userId + ":" + System.currentTimeMillis();
-            SecurityEvent event = new SecurityEvent(userId, eventType, details, Instant.now());
-            setJson(eventKey, event, 7 * 24 * 60 * 60); // 7일 보관
-        } catch (Exception e) {
-            log.error("Failed to record security event", e);
-        }
-    }
-
-    /**
-     * 최근 보안 이벤트 조회
-     */
-    public List<SecurityEvent> getRecentSecurityEvents(String userId, int limit) {
-        try {
-            // Redis pattern 검색을 통한 보안 이벤트 조회
-            // 실제 구현에서는 더 효율적인 방법 고려 필요
-            String pattern = "security_event:" + userId + ":*";
-
-            // 간단한 구현 예시 (실제로는 별도 저장소 사용 권장)
-            return new ArrayList<>(); // 실제 구현 필요
-
-        } catch (Exception e) {
-            log.error("Error retrieving security events for user: {}", userId, e);
-            return new ArrayList<>();
-        }
     }
 
     // Data classes
@@ -571,36 +419,5 @@ public class SessionService {
             result.message = message;
             return result;
         }
-    }
-
-    /**
-     * 의심스러운 활동 감지 결과
-     */
-    @AllArgsConstructor
-    @Getter
-    public static class SuspiciousActivityResult {
-        private final boolean suspicious;
-        private final String reason;
-    }
-
-    /**
-     * 세션 활동 유형
-     */
-    public enum SessionActivity {
-        REGULAR_ACTIVITY,
-        HIGH_SECURITY_ACTION,
-        EXTENDED_SESSION
-    }
-
-    /**
-     * 보안 이벤트 데이터
-     */
-    @AllArgsConstructor
-    @Getter
-    public static class SecurityEvent {
-        private String userId;
-        private String eventType;
-        private String details;
-        private Instant timestamp;
     }
 }

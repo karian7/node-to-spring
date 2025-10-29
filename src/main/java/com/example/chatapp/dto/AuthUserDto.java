@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserDto {
+public class AuthUserDto {
     @JsonProperty("_id")
     private String id;
     private String name;

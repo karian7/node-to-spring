@@ -3,19 +3,20 @@ package com.example.chatapp.websocket.socketio;
 import com.corundumstudio.socketio.AuthTokenListener;
 import com.corundumstudio.socketio.AuthTokenResult;
 import com.corundumstudio.socketio.SocketIOClient;
+import com.example.chatapp.dto.UserResponse;
 import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.SessionService;
 import com.example.chatapp.util.JwtUtil;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 /**
  * Socket.IO Authorization Handler
- * Mimics Node.js backend's auth logic: socket.handshake.auth.token and socket.handshake.auth.sessionId
+ * socket.handshake.auth.token과 sessionId를 처리한다.
  */
 @Slf4j
 @Component
@@ -25,6 +26,8 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
     private final JwtUtil jwtUtil;
     private final SessionService sessionService;
     private final UserRepository userRepository;
+    private final ObjectProvider<SocketIOChatHandler> socketIOChatHandlerProvider;
+    
 
     @Override
     public AuthTokenResult getAuthTokenResult(Object _authToken, SocketIOClient client) {
@@ -36,41 +39,39 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
             if (token == null || sessionId == null) {
                 log.warn("Missing authentication credentials in Socket.IO handshake - token: {}, sessionId: {}",
                         token != null, sessionId != null);
-                return new AuthTokenResult(false, "Missing credentials");
+                return new AuthTokenResult(false, "Authentication error");
             }
 
-            // Validate JWT token and extract user ID (same as Node.js backend)
+            // Validate JWT token and extract user ID
             String userId = jwtUtil.extractSubject(token);
             if (userId == null) {
                 log.warn("Invalid JWT token - no user ID found");
                 return new AuthTokenResult(false, "Invalid token");
             }
 
-            // Validate session (same as Node.js backend's SessionService.validateSession)
+            // Validate session using SessionService
             SessionService.SessionValidationResult validationResult =
                     sessionService.validateSession(userId, sessionId);
 
             if (!validationResult.isValid()) {
                 log.error("Session validation failed: {}", validationResult.getMessage());
-                return new AuthTokenResult(false, "Invalid session: " + validationResult.getMessage());
+                return new AuthTokenResult(false, "Invalid session");
             }
 
-            // Load user from database (same as Node.js backend's User.findById)
+            // Load user from database
             User user = userRepository.findById(userId).orElse(null);
             if (user == null) {
                 log.error("User not found: {}", userId);
                 return new AuthTokenResult(false, "User not found");
             }
-
-            // Store user info in handshake data for later use (similar to Node.js socket.user)
-            var data = client.getHandshakeData();
-            data.getHttpHeaders().set("socket.user.id", user.getId());
-            data.getHttpHeaders().set("socket.user.name", user.getName());
-            data.getHttpHeaders().set("socket.user.email", user.getEmail());
-            data.getHttpHeaders().set("socket.user.sessionId", sessionId);
-//            data.getHttpHeaders().set("socket.user.profileImage", user.getProfileImage());
+            // Store user info as a single object in client attributes
+            UserResponse userResponse = UserResponse.from(user);
+            
+            client.set("user", userResponse);
+            client.set("sessionId", sessionId);
 
             log.info("Socket.IO connection authorized for user: {} ({})", user.getName(), userId);
+            socketIOChatHandlerProvider.getObject().onConnect(client);
             return AuthTokenResult.AuthTokenResultSuccess;
         } catch (Exception e) {
             log.error("Socket.IO authentication error: {}", e.getMessage(), e);

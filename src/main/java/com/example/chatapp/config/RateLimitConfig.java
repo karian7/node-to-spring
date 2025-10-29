@@ -30,11 +30,15 @@ public class RateLimitConfig {
     }
 
     @Slf4j
-    @RequiredArgsConstructor
     public static class RateLimitService {
 
         private final RedisTemplate<String, String> redisTemplate;
         private final ObjectMapper objectMapper;
+
+        public RateLimitService(RedisTemplate<String, String> redisTemplate, ObjectMapper objectMapper) {
+            this.redisTemplate = redisTemplate;
+            this.objectMapper = objectMapper;
+        }
 
         // Rate Limit 설정
         private static final int DEFAULT_MAX_REQUESTS = 60; // IP당 최대 요청 수
@@ -83,13 +87,6 @@ public class RateLimitConfig {
         }
 
         /**
-         * 기본 설정으로 Rate Limit 체크
-         */
-        public boolean isAllowed(HttpServletRequest request, HttpServletResponse response) throws IOException {
-            return isAllowed(request, response, DEFAULT_MAX_REQUESTS, DEFAULT_WINDOW);
-        }
-
-        /**
          * 클라이언트 식별자 생성 (IP + User-Agent 기반)
          */
         private String getClientId(HttpServletRequest request) {
@@ -133,7 +130,6 @@ public class RateLimitConfig {
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
 
-            // Node.js와 동일한 에러 응답 형식
             ApiResponse<Object> errorResponse = ApiResponse.error(
                 "너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.",
                 Map.of(
@@ -170,46 +166,5 @@ public class RateLimitConfig {
                 log.debug("Failed to add rate limit headers", e);
             }
         }
-
-        /**
-         * 특정 클라이언트의 Rate Limit 초기화 (관리자용)
-         */
-        public void resetRateLimit(String clientId) {
-            try {
-                String key = RATE_LIMIT_PREFIX + clientId;
-                redisTemplate.delete(key);
-                log.info("Rate limit reset for client: {}", clientId);
-            } catch (Exception e) {
-                log.error("Failed to reset rate limit for client: {}", clientId, e);
-            }
-        }
-
-        /**
-         * 현재 Rate Limit 상태 조회
-         */
-        public RateLimitStatus getRateLimitStatus(String clientId) {
-            try {
-                String key = RATE_LIMIT_PREFIX + clientId;
-                String countStr = redisTemplate.opsForValue().get(key);
-                int currentCount = (countStr != null) ? Integer.parseInt(countStr) : 0;
-                Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-
-                return new RateLimitStatus(
-                    currentCount,
-                    DEFAULT_MAX_REQUESTS,
-                    Math.max(0, DEFAULT_MAX_REQUESTS - currentCount),
-                    ttl != null ? ttl : 0
-                );
-            } catch (Exception e) {
-                log.error("Failed to get rate limit status for client: {}", clientId, e);
-                return new RateLimitStatus(0, DEFAULT_MAX_REQUESTS, DEFAULT_MAX_REQUESTS, 0);
-            }
-        }
-    }
-
-    /**
-         * Rate Limit 상태 정보
-         */
-        public record RateLimitStatus(int currentCount, int maxRequests, int remaining, long resetTime) {
     }
 }

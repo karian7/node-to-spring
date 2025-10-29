@@ -6,7 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -21,6 +20,6 @@ public class RoomResponse {
     private UserResponse creator;
     private List<UserResponse> participants;
     private int participantsCount;
-    private LocalDateTime createdAt;
+    private String createdAt;
     private boolean isCreator;
 }

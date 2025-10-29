@@ -3,8 +3,7 @@ package com.example.chatapp.dto;
 import org.springframework.http.HttpStatus;
 
 /**
- * API 에러 코드 및 HTTP 상태 코드 체계
- * Node.js backend와 동일한 에러 코드 체계 제공
+ * API 에러 코드 및 HTTP 상태 코드 체계.
  */
 public enum ApiErrorCode {
     // 인증/인가 관련 (4xx)
@@ -39,7 +38,7 @@ public enum ApiErrorCode {
     NOT_ROOM_CREATOR("NOT_ROOM_CREATOR", "채팅방 생성자가 아닙니다.", HttpStatus.FORBIDDEN),
 
     // 파일 관련 (4xx)
-    FILE_TOO_LARGE("FILE_TOO_LARGE", "파일 크기가 너무 큽니다.", HttpStatus.BAD_REQUEST),
+    FILE_TOO_LARGE("FILE_TOO_LARGE", "파일 크기는 5MB를 초과할 수 없습니다.", HttpStatus.PAYLOAD_TOO_LARGE),
     INVALID_FILE_TYPE("INVALID_FILE_TYPE", "지원하지 않는 파일 형식입니다.", HttpStatus.BAD_REQUEST),
     FILE_UPLOAD_FAILED("FILE_UPLOAD_FAILED", "파일 업로드에 실패했습니다.", HttpStatus.BAD_REQUEST),
 
@@ -80,9 +79,5 @@ public enum ApiErrorCode {
 
     public HttpStatus getHttpStatus() {
         return httpStatus;
-    }
-
-    public int getStatusCode() {
-        return httpStatus.value();
     }
 }

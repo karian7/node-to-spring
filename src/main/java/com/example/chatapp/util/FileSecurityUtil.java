@@ -4,38 +4,40 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Pattern;
 
 @Slf4j
 @Component
 public class FileSecurityUtil {
 
-    // 허용된 파일 확장자 목록
-    private static final List<String> ALLOWED_EXTENSIONS = Arrays.asList(
-        "jpg", "jpeg", "png", "gif", "pdf", "doc", "docx",
-        "txt", "xlsx", "xls", "ppt", "pptx", "zip", "rar", "webp"
+    private static final Map<String, List<String>> ALLOWED_TYPES = Map.ofEntries(
+        Map.entry("image/jpeg", Arrays.asList("jpg", "jpeg")),
+        Map.entry("image/png", Arrays.asList("png")),
+        Map.entry("image/gif", Arrays.asList("gif")),
+        Map.entry("image/webp", Arrays.asList("webp")),
+        Map.entry("video/mp4", Arrays.asList("mp4")),
+        Map.entry("video/webm", Arrays.asList("webm")),
+        Map.entry("video/quicktime", Arrays.asList("mov")),
+        Map.entry("audio/mpeg", Arrays.asList("mp3")),
+        Map.entry("audio/wav", Arrays.asList("wav")),
+        Map.entry("audio/ogg", Arrays.asList("ogg")),
+        Map.entry("application/pdf", Arrays.asList("pdf")),
+        Map.entry("application/msword", Arrays.asList("doc")),
+        Map.entry("application/vnd.openxmlformats-officedocument.wordprocessingml.document", Arrays.asList("docx"))
     );
 
-    // 허용된 MIME 타입 목록
-    private static final List<String> ALLOWED_MIME_TYPES = Arrays.asList(
-        "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
-        "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/plain", "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-powerpoint",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/zip", "application/x-rar-compressed"
+    private static final Map<String, Long> FILE_SIZE_LIMITS = Map.of(
+        "image", 10L * 1024 * 1024,      // 10MB
+        "video", 50L * 1024 * 1024,      // 50MB
+        "audio", 20L * 1024 * 1024,      // 20MB
+        "application", 20L * 1024 * 1024 // 20MB (문서)
     );
-
-    // 최대 파일 크기 (10MB)
-    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024;
 
     // 파일명에 사용할 수 없는 문자들
     private static final Pattern INVALID_FILENAME_PATTERN = Pattern.compile("[^a-zA-Z0-9._-]");
@@ -55,21 +57,50 @@ public class FileSecurityUtil {
             throw new RuntimeException("파일명이 올바르지 않습니다.");
         }
 
-        // 파일 크기 검증
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new RuntimeException("파일 크기가 10MB를 초과할 수 없습니다.");
-        }
-
-        // 파일 확장자 검증
-        String extension = getFileExtension(originalFilename).toLowerCase();
-        if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new RuntimeException("허용되지 않은 파일 형식입니다. 허용 형식: " + String.join(", ", ALLOWED_EXTENSIONS));
+        // 파일명 길이 검증 (UTF-8 바이트 기준 255바이트)
+        int filenameBytes = originalFilename.getBytes(StandardCharsets.UTF_8).length;
+        if (filenameBytes > 255) {
+            throw new RuntimeException("파일명이 너무 깁니다.");
         }
 
         // MIME 타입 검증
         String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_MIME_TYPES.contains(contentType.toLowerCase())) {
-            throw new RuntimeException("허용되지 않은 파일 타입입니다.");
+        if (contentType == null || !ALLOWED_TYPES.containsKey(contentType)) {
+            throw new RuntimeException("지원하지 않는 파일 형식입니다.");
+        }
+
+        // 확장자-MIME 일치 검증
+        String extension = getFileExtension(originalFilename).toLowerCase();
+        List<String> allowedExtensions = ALLOWED_TYPES.get(contentType);
+        if (allowedExtensions == null || !allowedExtensions.contains(extension)) {
+            String fileType = getFileType(contentType);
+            throw new RuntimeException(fileType + " 확장자가 올바르지 않습니다.");
+        }
+
+        // 타입별 크기 제한 검증
+        String type = contentType.split("/")[0];
+        long limit = FILE_SIZE_LIMITS.getOrDefault(type, FILE_SIZE_LIMITS.get("application"));
+        
+        if (file.getSize() > limit) {
+            int limitInMB = (int) (limit / 1024 / 1024);
+            String fileType = getFileType(contentType);
+            throw new RuntimeException(fileType + " 파일은 " + limitInMB + "MB를 초과할 수 없습니다.");
+        }
+    }
+
+    /**
+     * 파일 타입 한글명 반환
+     */
+    private static String getFileType(String mimetype) {
+        if (mimetype == null) return "파일";
+        
+        String type = mimetype.split("/")[0];
+        switch (type) {
+            case "image": return "이미지";
+            case "video": return "동영상";
+            case "audio": return "오디오";
+            case "application": return "문서";
+            default: return "파일";
         }
     }
 
@@ -116,24 +147,29 @@ public class FileSecurityUtil {
 
         // 파일 확장자 분리
         String extension = getFileExtension(originalFilename);
-        String nameWithoutExtension = originalFilename;
-        if (!extension.isEmpty()) {
-            nameWithoutExtension = originalFilename.substring(0, originalFilename.lastIndexOf('.'));
-        }
 
-        // 특수문자 제거 및 안전한 문자로 변경
-        String safeName = INVALID_FILENAME_PATTERN.matcher(nameWithoutExtension).replaceAll("_");
-
-        // 길이 제한 (50자)
-        if (safeName.length() > 50) {
-            safeName = safeName.substring(0, 50);
-        }
-
-        // 타임스탬프와 랜덤 값 추가로 고유성 보장
+        // 타임스탬프와 16자리 hex 랜덤 값으로 고유성 보장
         long timestamp = Instant.now().toEpochMilli();
-        int random = secureRandom.nextInt(1000);
+        byte[] randomBytes = new byte[8];
+        secureRandom.nextBytes(randomBytes);
+        String randomHex = bytesToHex(randomBytes);
 
-        return String.format("%s_%d_%03d.%s", safeName, timestamp, random, extension);
+        if (!extension.isEmpty()) {
+            return String.format("%d_%s.%s", timestamp, randomHex, extension);
+        } else {
+            return String.format("%d_%s", timestamp, randomHex);
+        }
+    }
+    
+    /**
+     * 바이트 배열을 16진수 문자열로 변환
+     */
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     /**
@@ -146,14 +182,31 @@ public class FileSecurityUtil {
     }
 
     /**
-     * 파일명 정리 (특수문자 제거)
+     * 원본 파일명 정규화 (경로 문자 제거 및 NFC 정규화)
      */
-    public static String sanitizeFileName(String filename) {
-        if (filename == null || filename.trim().isEmpty()) {
-            return "file";
+    public static String normalizeOriginalFilename(String originalFilename) {
+        if (originalFilename == null || originalFilename.trim().isEmpty()) {
+            return "";
         }
-
-        return INVALID_FILENAME_PATTERN.matcher(filename.trim()).replaceAll("_");
+        
+        // 경로 문자 제거 (/, \)
+        String cleaned = originalFilename.replaceAll("[/\\\\]", "");
+        
+        // NFC 정규화 (한글 등 유니코드 정규화)
+        return java.text.Normalizer.normalize(cleaned, java.text.Normalizer.Form.NFC);
+    }
+    
+    /**
+     * 파일명 정규식 검증
+     */
+    public static boolean isValidFilename(String filename) {
+        if (filename == null || filename.trim().isEmpty()) {
+            return false;
+        }
+        
+        // 패턴: 숫자_16자리hex.확장자
+        Pattern pattern = Pattern.compile("^[0-9]+_[a-f0-9]{16}\\.[a-z0-9]+$");
+        return pattern.matcher(filename).matches();
     }
 
     /**

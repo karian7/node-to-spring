@@ -1,8 +1,8 @@
 package com.example.chatapp.websocket.socketio;
 
 /**
- * Socket.IO 이벤트명 상수 정의
- * Node.js 백엔드와 호환성을 유지하기 위한 이벤트명 관리
+ * Socket.IO 이벤트명 상수 정의.
+ * 시스템 전반에서 일관된 이벤트명을 관리한다.
  *
  * 참고: backend/sockets/chat.js의 이벤트명과 일치해야 함
  */
@@ -59,6 +59,12 @@ public final class SocketIOEvents {
      */
     public static final String FORCE_LOGIN = "force_login";
     
+    /**
+     * 기존 세션 유지 (중복 로그인 거부)
+     * Payload: empty or acknowledgment
+     */
+    public static final String KEEP_EXISTING_SESSION = "keep_existing_session";
+    
     // ============================================
     // Server → Client Events (전송 이벤트)
     // ============================================
@@ -103,6 +109,18 @@ public final class SocketIOEvents {
      * Payload: List<UserDto>
      */
     public static final String PARTICIPANTS_UPDATE = "participantsUpdate";
+
+    /**
+     * 채팅방 생성 알림
+     * Payload: RoomResponse
+     */
+    public static final String ROOM_CREATED = "roomCreated";
+
+    /**
+     * 채팅방 정보 업데이트
+     * Payload: RoomResponse
+     */
+    public static final String ROOM_UPDATE = "roomUpdate";
 
     /**
      * 사용자 퇴장 알림

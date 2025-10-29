@@ -5,22 +5,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
+import org.springframework.data.mongodb.repository.Update;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface RoomRepository extends MongoRepository<Room, String> {
-
-    // 특정 사용자가 참여중인 채팅방 목록 조회
-    List<Room> findByParticipantIdsContaining(String userId);
-
-    // 방장으로 생성한 채팅방 목록 조회
-    List<Room> findByCreator(String creator);
-
-    // 채팅방 이름으로 검색
-    List<Room> findByNameContainingIgnoreCase(String name);
 
     // 페이지네이션과 함께 모든 방 조회
     Page<Room> findAll(Pageable pageable);
@@ -35,4 +26,8 @@ public interface RoomRepository extends MongoRepository<Room, String> {
     // Health Check용 단순 조회 (지연 시간 측정)
     @Query(value = "{}", fields = "{ '_id': 1 }")
     Optional<Room> findOneForHealthCheck();
+
+    @Query("{'_id': ?0}")
+    @Update("{'$addToSet': {'participantIds': ?1}}")
+    void addParticipant(String roomId, String userId);
 }

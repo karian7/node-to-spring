@@ -35,10 +35,6 @@ public class UserService {
     @Value("${app.profile.image.max-size:5242880}") // 5MB
     private long maxProfileImageSize;
 
-    private static final List<String> ALLOWED_IMAGE_TYPES = Arrays.asList(
-            "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"
-    );
-
     private static final List<String> ALLOWED_EXTENSIONS = Arrays.asList(
             "jpg", "jpeg", "png", "gif", "webp"
     );
@@ -98,7 +94,7 @@ public class UserService {
 
         return new ProfileImageResponse(
                 true,
-                "프로필 이미지가 성공적으로 업로드되었습니다.",
+                "프로필 이미지가 업데이트되었습니다.",
                 profileImageUrl
         );
     }
@@ -118,30 +114,30 @@ public class UserService {
      */
     private void validateProfileImageFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("프로필 이미지 파일을 선택해주세요.");
+            throw new IllegalArgumentException("이미지가 제공되지 않았습니다.");
         }
 
         // 파일 크기 검증
         if (file.getSize() > maxProfileImageSize) {
-            throw new IllegalArgumentException("프로필 이미지 크기는 5MB를 초과할 수 없습니다.");
+            throw new IllegalArgumentException("파일 크기는 5MB를 초과할 수 없습니다.");
         }
 
-        // Content-Type 검증
+        // Content-Type 검증 - Node.js처럼 image/* 전체 허용
         String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType.toLowerCase())) {
-            throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. (JPG, PNG, GIF, WebP만 가능)");
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("이미지 파일만 업로드할 수 있습니다.");
         }
 
-        // 파일 확장자 검증
+        // 파일 확장자 검증 (보안을 위해 화이트리스트 유지)
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null) {
-            throw new IllegalArgumentException("올바르지 않은 파일입니다.");
+            throw new IllegalArgumentException("이미지 파일만 업로드할 수 있습니다.");
         }
 
         // FileSecurityUtil의 static 메서드 호출
         String extension = FileSecurityUtil.getFileExtension(originalFilename).toLowerCase();
         if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new IllegalArgumentException("지원하지 않는 파일 확장자입니다. (jpg, png, gif, webp만 가능)");
+            throw new IllegalArgumentException("이미지 파일만 업로드할 수 있습니다.");
         }
     }
 
@@ -163,5 +159,36 @@ public class UserService {
         } catch (IOException e) {
             log.warn("기존 프로필 이미지 삭제 실패: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 프로필 이미지 삭제
+     */
+    public void deleteProfileImage(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
+
+        if (user.getProfileImage() != null && !user.getProfileImage().isEmpty()) {
+            deleteOldProfileImage(user.getProfileImage());
+            user.setProfileImage("");
+            user.setUpdatedAt(LocalDateTime.now());
+            userRepository.save(user);
+            log.info("프로필 이미지 삭제 완료 - User ID: {}", userId);
+        }
+    }
+
+    /**
+     * 회원 탈퇴 처리
+     */
+    public void deleteUserAccount(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
+
+        if (user.getProfileImage() != null && !user.getProfileImage().isEmpty()) {
+            deleteOldProfileImage(user.getProfileImage());
+        }
+
+        userRepository.delete(user);
+        log.info("회원 탈퇴 완료 - User ID: {}", userId);
     }
 }

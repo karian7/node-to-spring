@@ -2,92 +2,149 @@ package com.example.chatapp.service.impl;
 
 import com.example.chatapp.model.AiType;
 import com.example.chatapp.service.AiService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.function.Consumer;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 /**
  * AI 서비스 구현체
- * 향후 ChatGPT, Claude 등 실제 AI 모델 연동 시 이 클래스를 확장
+ * OpenAI GPT-4를 사용한 스트리밍 응답 생성
  */
 @Slf4j
 @Service
 public class AiServiceImpl implements AiService {
 
-    @Override
-    public String generateResponse(String prompt, String roomId, String userId) {
-        try {
-            // TODO: 실제 AI API 연동 구현
-            // 현재는 간단한 응답만 제공
+    @Value("${openai.api.key}")
+    private String openaiApiKey;
 
-            log.info("AI 응답 요청: 룸 {} - 사용자 {} - 프롬프트: {}", roomId, userId, prompt);
-
-            if (prompt.toLowerCase().contains("안녕") || prompt.toLowerCase().contains("hello")) {
-                return "안녕하세요! 무엇을 도와드릴까요?";
-            }
-
-            if (prompt.toLowerCase().contains("시간")) {
-                return "현재 시간은 " + java.time.LocalDateTime.now().format(
-                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " 입니다.";
-            }
-
-            if (prompt.toLowerCase().contains("도움") || prompt.toLowerCase().contains("help")) {
-                return "저는 채팅방의 AI 어시스턴트입니다. " +
-                       "@ai 또는 !ask를 사용하여 질문해주세요. " +
-                       "파일 관련 질문이나 대화 요약도 가능합니다.";
-            }
-
-            // 기본 응답
-            return "죄송하지만 현재는 간단한 응답만 가능합니다. " +
-                   "더 자세한 AI 기능은 향후 업데이트에서 제공될 예정입니다.";
-
-        } catch (Exception e) {
-            log.error("AI 응답 생성 중 오류", e);
-            return "AI 응답 생성 중 오류가 발생했습니다.";
-        }
-    }
-
-    @Override
-    public String generateResponseWithFileContext(String prompt, String fileId, String userId) {
-        try {
-            log.info("파일 기반 AI 응답 요청: 파일 {} - 사용자 {} - 프롬프트: {}", fileId, userId, prompt);
-
-            // TODO: RAG 시스템과 연동하여 파일 내용 기반 응답 생성
-            return "파일 내용을 분석하여 답변을 생성하는 기능은 현재 개발 중입니다. " +
-                   "향후 업데이트에서 제공될 예정입니다.";
-
-        } catch (Exception e) {
-            log.error("파일 기반 AI 응답 생성 중 오류", e);
-            return "파일 분석 중 오류가 발생했습니다.";
-        }
-    }
-
-    @Override
-    public String summarizeConversation(String roomId, int messageCount) {
-        try {
-            log.info("대화 요약 요청: 룸 {} - 메시지 수: {}", roomId, messageCount);
-
-            // TODO: 실제 대화 내용을 분석하여 요약 생성
-            return String.format("최근 %d개 메시지의 대화 요약:\n" +
-                               "채팅방에서 활발한 대화가 이루어지고 있습니다. " +
-                               "상세한 요약 기능은 향후 AI 모델 연동 시 제공될 예정입니다.", messageCount);
-
-        } catch (Exception e) {
-            log.error("대화 요약 생성 중 오류", e);
-            return "대화 요약 생성 중 오류가 발생했습니다.";
-        }
-    }
+    private static final String OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+    private static final String MODEL = "gpt-4";
+    private static final double TEMPERATURE = 0.7;
+    
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public boolean isAvailable() {
-        // 현재는 기본 응답만 가능한 상태
-        return true;
+        // OpenAI API 키가 설정되어 있는지 확인
+        return openaiApiKey != null && !openaiApiKey.isBlank() && !"your-openai-api-key".equals(openaiApiKey);
     }
 
     @Override
-    public void generateStreamingResponse(AiType aiTypeEnum, String query, Consumer<String> c, Runnable r) {
+    public void generateStreamingResponse(AiType aiType, String query, StreamingCallbacks callbacks) {
+        try {
+            log.info("Starting AI streaming response - aiType: {}, query: {}", aiType, query);
 
+            // onStart 콜백 호출
+            callbacks.onStart();
+
+            // 페르소나별 시스템 프롬프트 생성
+            String systemPrompt = aiType.getSystemPrompt();
+
+            // OpenAI API 요청 페이로드 생성
+            String requestBody = String.format("""
+                {
+                    "model": "%s",
+                    "messages": [
+                        {"role": "system", "content": %s},
+                        {"role": "user", "content": %s}
+                    ],
+                    "temperature": %.1f,
+                    "stream": true
+                }""",
+                MODEL,
+                objectMapper.writeValueAsString(systemPrompt),
+                objectMapper.writeValueAsString(query),
+                TEMPERATURE
+            );
+
+            // HTTP 연결 설정
+            URL url = new URL(OPENAI_API_URL);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + openaiApiKey);
+            connection.setDoOutput(true);
+
+            // 요청 전송
+            try (OutputStream os = connection.getOutputStream()) {
+                byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            // 스트리밍 응답 처리
+            StringBuilder fullResponse = new StringBuilder();
+            boolean[] isCodeBlock = {false}; // 코드 블록 상태 추적
+            
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    // SSE 형식 파싱
+                    if (line.startsWith("data: ")) {
+                        String data = line.substring(6).trim();
+                        
+                        // 스트림 종료 감지
+                        if ("[DONE]".equals(data)) {
+                            log.debug("Streaming completed");
+                            
+                            // onComplete 콜백 호출
+                            // Note: OpenAI streaming doesn't provide token counts in stream
+                            // They would need to be fetched separately if required
+                            callbacks.onComplete(new CompletionData(
+                                fullResponse.toString().trim(),
+                                null,  // completionTokens - not available in streaming
+                                null   // totalTokens - not available in streaming
+                            ));
+                            break;
+                        }
+
+                        try {
+                            // JSON 파싱하여 content 추출
+                            JsonNode jsonNode = objectMapper.readTree(data);
+                            JsonNode choices = jsonNode.get("choices");
+                            
+                            if (choices != null && choices.isArray() && !choices.isEmpty()) {
+                                JsonNode delta = choices.get(0).get("delta");
+                                if (delta != null && delta.has("content")) {
+                                    String content = delta.get("content").asText();
+                                    
+                                    if (content != null && !content.isEmpty()) {
+                                        // 코드 블록 감지
+                                        if (content.contains("```")) {
+                                            isCodeBlock[0] = !isCodeBlock[0];
+                                        }
+                                        
+                                        // onChunk 콜백 호출
+                                        callbacks.onChunk(new ChunkData(content, isCodeBlock[0]));
+                                        
+                                        // 전체 응답 누적
+                                        fullResponse.append(content);
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to parse streaming chunk: {}", e.getMessage());
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error during AI streaming response generation", e);
+            // onError 콜백 호출
+            callbacks.onError(e);
+        }
     }
+
 
 }

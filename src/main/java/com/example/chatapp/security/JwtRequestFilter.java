@@ -36,7 +36,7 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         String sessionId = extractSessionId(request);
         String userId = null;
 
-        if (jwt != null) {
+        if (jwt != null && sessionId != null) {
             try {
                 userId = jwtUtil.extractSubject(jwt);
             } catch (Exception e) {
@@ -50,16 +50,15 @@ public class JwtRequestFilter extends OncePerRequestFilter {
             // Validate JWT token
             if (jwtUtil.validateToken(jwt, userDetails)) {
 
-                // Additional session validation if sessionId is provided
-                if (sessionId != null) {
-                    SessionService.SessionValidationResult validationResult =
-                            sessionService.validateSession(userDetails.getUsername(), sessionId);
+                // Session validation (필수)
+                SessionService.SessionValidationResult validationResult =
+                        sessionService.validateSession(userDetails.getUsername(), sessionId);
 
-                    if (!validationResult.isValid()) {
-                        log.debug("Session validation failed: {} - {}",
-                                validationResult.getError(), validationResult.getMessage());
-                        // Continue with JWT-only authentication
-                    }
+                if (!validationResult.isValid()) {
+                    log.debug("Session validation failed: {} - {}",
+                            validationResult.getError(), validationResult.getMessage());
+                    chain.doFilter(request, response);
+                    return;
                 }
 
                 UsernamePasswordAuthenticationToken authenticationToken =
@@ -76,7 +75,7 @@ public class JwtRequestFilter extends OncePerRequestFilter {
      * Extract JWT token from multiple header sources
      */
     private String extractJwtToken(HttpServletRequest request) {
-        // 1. Try custom header first (Node.js compatibility)
+        // 1. Try custom header first
         String token = request.getHeader("x-auth-token");
         if (token != null && !token.isEmpty()) {
             return token;
@@ -101,7 +100,7 @@ public class JwtRequestFilter extends OncePerRequestFilter {
      * Extract session ID from multiple header sources
      */
     private String extractSessionId(HttpServletRequest request) {
-        // 1. Try custom header first (Node.js compatibility)
+        // 1. Try custom header first
         String sessionId = request.getHeader("x-session-id");
         if (sessionId != null && !sessionId.isEmpty()) {
             return sessionId;

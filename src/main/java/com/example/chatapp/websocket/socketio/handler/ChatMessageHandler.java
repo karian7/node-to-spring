@@ -11,20 +11,20 @@ import com.example.chatapp.repository.MessageRepository;
 import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.AiService;
+import com.example.chatapp.service.SessionService;
 import com.example.chatapp.websocket.socketio.StreamingSession;
-
-import static com.example.chatapp.websocket.socketio.SocketIOEvents.*;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import static com.example.chatapp.websocket.socketio.SocketIOEvents.*;
 
 @Slf4j
 @Component
@@ -36,8 +36,9 @@ public class ChatMessageHandler {
     private final UserRepository userRepository;
     private final FileRepository fileRepository;
     private final AiService aiService;
+    private final SessionService sessionService;
     
-    // Node.js와 동일한 스트리밍 세션 관리
+    // 스트리밍 세션 관리 맵
     private final Map<String, StreamingSession> streamingSessions = new ConcurrentHashMap<>();
 
     @Transactional
@@ -45,9 +46,9 @@ public class ChatMessageHandler {
     public DataListener<Map> getListener() {
         return (client, data, ackSender) -> {
             try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
+                UserResponse userResponse = client.get("user");
 
-                if (userId == null) {
+                if (userResponse == null) {
                     client.sendEvent(ERROR, Map.of(
                         "code", "UNAUTHORIZED",
                         "message", "User authentication required"
@@ -55,7 +56,27 @@ public class ChatMessageHandler {
                     return;
                 }
 
-                // 데이터 검증
+                String userId = userResponse.getId();
+                String sessionId = client.get("sessionId");
+
+                if (sessionId == null || sessionId.isBlank()) {
+                    client.sendEvent(ERROR, Map.of(
+                        "code", "SESSION_EXPIRED",
+                        "message", "세션이 만료되었습니다. 다시 로그인해주세요."
+                    ));
+                    return;
+                }
+
+                SessionService.SessionValidationResult validation =
+                    sessionService.validateSession(userId, sessionId);
+                if (!validation.isValid()) {
+                    client.sendEvent(ERROR, Map.of(
+                        "code", "SESSION_EXPIRED",
+                        "message", "세션이 만료되었습니다. 다시 로그인해주세요."
+                    ));
+                    return;
+                }
+
                 if (data == null) {
                     client.sendEvent(ERROR, Map.of(
                         "code", "MESSAGE_ERROR",
@@ -68,7 +89,6 @@ public class ChatMessageHandler {
                 String type = (String) data.get("type");
                 String content = (String) data.get("content");
 
-                // msg 필드도 확인 (JavaScript 버전에서 사용)
                 if (content == null || content.trim().isEmpty()) {
                     content = (String) data.get("msg");
                 }
@@ -84,7 +104,6 @@ public class ChatMessageHandler {
                     return;
                 }
 
-                // 사용자 조회
                 User sender = userRepository.findById(userId).orElse(null);
                 if (sender == null) {
                     client.sendEvent(ERROR, Map.of(
@@ -94,7 +113,6 @@ public class ChatMessageHandler {
                     return;
                 }
 
-                // 채팅방 권한 확인
                 Room room = roomRepository.findById(roomId).orElse(null);
                 if (room == null || !room.getParticipantIds().contains(userId)) {
                     client.sendEvent(ERROR, Map.of(
@@ -104,56 +122,51 @@ public class ChatMessageHandler {
                     return;
                 }
 
-                // AI 멘션 확인
                 List<String> aiMentions = extractAIMentions(content);
-                Message message;
 
                 log.debug("Message received - type: {}, room: {}, userId: {}, hasFileData: {}, hasAIMentions: {}",
                     type, roomId, userId, fileData != null, aiMentions.size());
 
-                // 메시지 타입별 처리 (JavaScript 버전과 동일한 switch 구조)
-                message = switch (type != null ? type : "text") {
+                Message message = switch (type != null ? type : "text") {
                     case "file" -> handleFileMessage(roomId, userId, content, fileData);
                     case "text" -> handleTextMessage(roomId, userId, content);
                     default -> handleTextMessage(roomId, userId, content);
                 };
 
                 if (message == null) {
-                    return; // 에러는 각 핸들러에서 처리
+                    return;
                 }
 
-                // 메시지 저장
                 Message savedMessage = messageRepository.save(message);
 
-                // sender와 file 정보 populate (JavaScript 버전과 동일)
-                if (savedMessage.getFileId() != null) {
+                if (savedMessage.getFileId() != null && savedMessage.getMetadata() == null) {
                     fileRepository.findById(savedMessage.getFileId()).ifPresent(file -> {
-                        savedMessage.setMetadata(Message.FileMetadata.builder()
-                            .fileType(file.getMimetype())
-                            .fileSize(file.getSize())
-                            .originalName(file.getOriginalname())
-                            .build());
+                        Map<String, Object> metadata = new HashMap<>();
+                        metadata.put("fileType", file.getMimetype());
+                        metadata.put("fileSize", file.getSize());
+                        metadata.put("originalName", file.getOriginalname());
+                        savedMessage.setMetadata(metadata);
                     });
                 }
 
-                // JavaScript 버전과 동일한 구조로 브로드캐스트
-                var roomOperations = socketIOServer.getRoomOperations("room:" + roomId);
+                var roomOperations = socketIOServer.getRoomOperations(roomId);
                 roomOperations.sendEvent(MESSAGE, createMessageResponse(savedMessage, sender));
 
-                // AI 멘션이 있는 경우 AI 응답 생성 (JavaScript 버전과 동일)
                 if (!aiMentions.isEmpty()) {
                     for (String aiType : aiMentions) {
                         String query = content.replaceAll("@" + aiType + "\\b", "").trim();
-                        handleAIResponse(roomId, aiType, query);
+                        handleAIResponse(roomId, userId, aiType, query);
                     }
                 }
+
+                sessionService.updateLastActivity(userId);
 
                 log.debug("Message processed - messageId: {}, type: {}, room: {}",
                     savedMessage.getId(), savedMessage.getType(), roomId);
 
             } catch (Exception e) {
                 log.error("Message handling error", e);
-                client.sendEvent("error", Map.of(
+                client.sendEvent(ERROR, Map.of(
                     "code", "MESSAGE_ERROR",
                     "message", e.getMessage() != null ? e.getMessage() : "메시지 전송 중 오류가 발생했습니다."
                 ));
@@ -169,23 +182,30 @@ public class ChatMessageHandler {
         String fileId = (String) fileData.get("_id");
         com.example.chatapp.model.File file = fileRepository.findById(fileId).orElse(null);
 
-        if (file == null || !file.getUploadedBy().equals(userId)) {
+        if (file == null || !file.getUser().equals(userId)) {
             throw new RuntimeException("파일을 찾을 수 없거나 접근 권한이 없습니다.");
         }
+
+        String trimmedContent = content != null ? content.trim() : "";
+        List<String> mentions = extractAIMentions(trimmedContent);
 
         Message message = new Message();
         message.setRoomId(roomId);
         message.setSenderId(userId);
-        message.setType(MessageType.FILE);
+        message.setType(MessageType.file);
         message.setFileId(fileId);
-        message.setContent(content != null ? content : "");
+        message.setContent(trimmedContent);
         message.setTimestamp(LocalDateTime.now());
         message.setReactions(new java.util.HashMap<>());
-        message.setMetadata(Message.FileMetadata.builder()
-                .fileType(file.getMimetype())
-                .fileSize(file.getSize())
-                .originalName(file.getOriginalname())
-                .build());
+        message.setMentions(mentions);
+        message.setIsDeleted(false);
+        
+        // 메타데이터는 Map<String, Object>
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("fileType", file.getMimetype());
+        metadata.put("fileSize", file.getSize());
+        metadata.put("originalName", file.getOriginalname());
+        message.setMetadata(metadata);
 
         return message;
     }
@@ -195,32 +215,37 @@ public class ChatMessageHandler {
             return null; // 빈 메시지는 무시
         }
 
+        String trimmedContent = content.trim();
+        List<String> mentions = extractAIMentions(trimmedContent);
+
         Message message = new Message();
         message.setRoomId(roomId);
         message.setSenderId(userId);
-        message.setContent(content.trim());
-        message.setType(MessageType.TEXT);
+        message.setContent(trimmedContent);
+        message.setType(MessageType.text);
         message.setTimestamp(LocalDateTime.now());
         message.setReactions(new java.util.HashMap<>());
+        message.setMentions(mentions);
+        message.setIsDeleted(false);
 
         return message;
     }
 
     // JavaScript 버전과 동일한 AI 멘션 추출
     private List<String> extractAIMentions(String content) {
-        List<String> mentions = new java.util.ArrayList<>();
-        if (content == null) return mentions;
-
-        // JavaScript 버전과 동일한 AI 타입들
-        String[] aiTypes = {"wayneAI", "consultingAI"};
-
-        for (String aiType : aiTypes) {
-            if (content.contains("@" + aiType)) {
-                mentions.add(aiType);
-            }
+        if (content == null || content.isBlank()) {
+            return Collections.emptyList();
         }
 
-        return mentions;
+        Pattern mentionPattern = Pattern.compile("@(wayneAI|consultingAI)\\b");
+        Matcher matcher = mentionPattern.matcher(content);
+        Set<String> mentions = new LinkedHashSet<>();
+
+        while (matcher.find()) {
+            mentions.add(matcher.group(1));
+        }
+
+        return new ArrayList<>(mentions);
     }
 
     // JavaScript 버전과 동일한 구조의 응답 생성
@@ -230,7 +255,7 @@ public class ChatMessageHandler {
         messageResponse.setRoomId(message.getRoomId());
         messageResponse.setContent(message.getContent());
         messageResponse.setType(message.getType());
-        messageResponse.setTimestamp(message.getTimestamp());
+        messageResponse.setTimestamp(message.toTimestampMillis());
         messageResponse.setReactions(message.getReactions() != null ? message.getReactions() : Collections.emptyMap());
         messageResponse.setSender(UserResponse.from(sender));
 
@@ -244,27 +269,29 @@ public class ChatMessageHandler {
         return messageResponse;
     }
 
-    private void handleAIResponse(String roomId, String aiType, String query) {
-        // AI 스트리밍 세션 생성 - Node.js 버전과 동일한 messageId 형식
+    private void handleAIResponse(String roomId, String userId, String aiType, String query) {
+        // AI 스트리밍 세션 생성 - messageId는 타입과 타임스탬프 조합
         String messageId = aiType + "-" + System.currentTimeMillis();
         LocalDateTime timestamp = LocalDateTime.now();
 
         log.info("AI response started - messageId: {}, room: {}, aiType: {}, query: {}",
             messageId, roomId, aiType, query);
 
-        // 스트리밍 세션 초기화 (Node.js와 동일)
+        // 스트리밍 세션 초기화
         StreamingSession session = StreamingSession.builder()
             .messageId(messageId)
             .roomId(roomId)
+            .userId(userId)
             .aiType(aiType)
             .content("")
             .timestamp(timestamp)
+            .lastUpdate(System.currentTimeMillis())
             .isStreaming(true)
             .build();
         streamingSessions.put(messageId, session);
 
-        // AI 스트리밍 시작 알림 (Node.js 버전과 동일한 이벤트명과 구조)
-        socketIOServer.getRoomOperations("room:" + roomId)
+        // AI 스트리밍 시작 알림 전송
+        socketIOServer.getRoomOperations(roomId)
                 .sendEvent(AI_MESSAGE_START, Map.of(
                     "messageId", messageId,
                     "aiType", aiType,
@@ -280,72 +307,91 @@ public class ChatMessageHandler {
                 if (aiTypeEnum == null) {
                     log.warn("Unknown AI type: {}", aiType);
                     streamingSessions.remove(messageId);
-                    socketIOServer.getRoomOperations("room:" + roomId)
+                    socketIOServer.getRoomOperations(roomId)
                             .sendEvent(AI_MESSAGE_ERROR, Map.of(
                                 "messageId", messageId,
-                                "error", "지원하지 않는 AI 타입입니다: " + aiType,
+                                "error", "Unknown AI persona",
                                 "aiType", aiType
                             ));
                     return;
                 }
 
-                // 스트리밍 응답 생성
+                // 스트리밍 응답 생성 콜백 구성
                 StringBuilder accumulatedContent = new StringBuilder();
+                long startTime = System.currentTimeMillis();
 
-                aiService.generateStreamingResponse(aiTypeEnum, query,
-                    // 스트리밍 청크 콜백 - Node.js 버전과 동일한 구조
-                    chunk -> {
-                        accumulatedContent.append(chunk);
+                aiService.generateStreamingResponse(aiTypeEnum, query, new AiService.StreamingCallbacks() {
+                    @Override
+                    public void onStart() {
+                        // onStart 콜백 처리
+                        log.debug("AI generation started - messageId: {}, aiType: {}", messageId, aiType);
+                    }
+
+                    @Override
+                    public void onChunk(AiService.ChunkData chunk) {
+                        // onChunk 콜백 처리
+                        accumulatedContent.append(chunk.getCurrentChunk());
                         
-                        // 세션 업데이트 (Node.js와 동일)
+                        // 세션 업데이트
                         StreamingSession s = streamingSessions.get(messageId);
                         if (s != null) {
                             s.setContent(accumulatedContent.toString());
+                            s.setLastUpdate(System.currentTimeMillis());
                         }
                         
-                        // 코드 블록 감지 (Node.js와 동일)
-                        boolean isCodeBlock = detectCodeBlock(chunk);
-                        
-                        socketIOServer.getRoomOperations("room:" + roomId)
+                        // 스트리밍 이벤트 전송
+                        socketIOServer.getRoomOperations(roomId)
                                 .sendEvent(AI_MESSAGE_CHUNK, Map.of(
                                     "messageId", messageId,
-                                    "currentChunk", chunk,
+                                    "currentChunk", chunk.getCurrentChunk(),
                                     "fullContent", accumulatedContent.toString(),
-                                    "isCodeBlock", isCodeBlock,
+                                    "isCodeBlock", chunk.isCodeBlock(),
                                     "timestamp", LocalDateTime.now(),
                                     "aiType", aiType,
                                     "isComplete", false
                                 ));
-                    },
-                    // 스트리밍 완료 콜백 - Node.js 버전과 동일한 구조
-                    () -> {
+                    }
+
+                    @Override
+                    public void onComplete(AiService.CompletionData completion) {
+                        // onComplete 콜백 처리
                         try {
-                            // 세션 정리 (Node.js와 동일)
+                            // 스트리밍 세션 정리
                             streamingSessions.remove(messageId);
                             
-                            // AI 메시지 저장 (Node.js 버전과 동일)
+                            long generationTime = System.currentTimeMillis() - startTime;
+                            
                             Message aiMessage = new Message();
                             aiMessage.setRoomId(roomId);
-                            aiMessage.setContent(accumulatedContent.toString());
-                            aiMessage.setType(MessageType.AI);
+                            aiMessage.setContent(completion.getContent());
+                            aiMessage.setType(MessageType.ai);
                             aiMessage.setAiType(convertToAiType(aiType));
                             aiMessage.setTimestamp(LocalDateTime.now());
                             aiMessage.setReactions(new java.util.HashMap<>());
+                            aiMessage.setMentions(new ArrayList<>());
+                            aiMessage.setIsDeleted(false);
+                            aiMessage.setReaders(new ArrayList<>());
 
                             // 메타데이터 설정
-                            Message.AiMetadata metadata = Message.AiMetadata.builder()
-                                .query(query)
-                                .generationTime(System.currentTimeMillis() - timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
-                                .build();
-                            aiMessage.setAiMetadata(metadata);
+                            Map<String, Object> metadata = new HashMap<>();
+                            metadata.put("query", query);
+                            metadata.put("generationTime", generationTime);
+                            if (completion.getCompletionTokens() != null) {
+                                metadata.put("completionTokens", completion.getCompletionTokens());
+                            }
+                            if (completion.getTotalTokens() != null) {
+                                metadata.put("totalTokens", completion.getTotalTokens());
+                            }
+                            aiMessage.setMetadata(metadata);
 
                             Message savedMessage = messageRepository.save(aiMessage);
 
-                            socketIOServer.getRoomOperations("room:" + roomId)
+                            // 완료 이벤트 전송
+                            socketIOServer.getRoomOperations(roomId)
                                     .sendEvent(AI_MESSAGE_COMPLETE, Map.of(
                                         "messageId", messageId,
                                         "_id", savedMessage.getId(),
-                                        "content", accumulatedContent.toString(),
+                                        "content", completion.getContent(),
                                         "aiType", aiType,
                                         "timestamp", LocalDateTime.now(),
                                         "isComplete", true,
@@ -357,7 +403,7 @@ public class ChatMessageHandler {
                         } catch (Exception e) {
                             log.error("Error saving AI message for messageId: {}", messageId, e);
                             streamingSessions.remove(messageId);
-                            socketIOServer.getRoomOperations("room:" + roomId)
+                            socketIOServer.getRoomOperations(roomId)
                                     .sendEvent(AI_MESSAGE_ERROR, Map.of(
                                         "messageId", messageId,
                                         "error", "AI 메시지 저장 중 오류가 발생했습니다.",
@@ -365,13 +411,26 @@ public class ChatMessageHandler {
                                     ));
                         }
                     }
-                );
+
+                    @Override
+                    public void onError(Exception error) {
+                        // onError 콜백 처리
+                        log.error("AI streaming error for messageId: {}", messageId, error);
+                        streamingSessions.remove(messageId);
+                        socketIOServer.getRoomOperations(roomId)
+                                .sendEvent(AI_MESSAGE_ERROR, Map.of(
+                                    "messageId", messageId,
+                                    "error", error.getMessage() != null ? error.getMessage() : "AI 응답 생성 중 오류가 발생했습니다.",
+                                    "aiType", aiType
+                                ));
+                    }
+                });
 
             } catch (Exception e) {
                 log.error("AI streaming error for messageId: {}", messageId, e);
                 streamingSessions.remove(messageId);
-                socketIOServer.getRoomOperations("room:" + roomId)
-                        .sendEvent("aiMessageError", Map.of(
+                socketIOServer.getRoomOperations(roomId)
+                        .sendEvent(AI_MESSAGE_ERROR, Map.of(
                             "messageId", messageId,
                             "error", e.getMessage() != null ? e.getMessage() : "AI 응답 생성 중 오류가 발생했습니다.",
                             "aiType", aiType
@@ -381,7 +440,7 @@ public class ChatMessageHandler {
     }
     
     /**
-     * 코드 블록 감지 로직 (Node.js와 동일)
+     * 코드 블록 감지 로직
      * Markdown 코드 블록(```)이나 들여쓰기 코드 블록(4칸 이상) 감지
      */
     private boolean detectCodeBlock(String chunk) {
@@ -405,5 +464,16 @@ public class ChatMessageHandler {
             case "consultingai" -> AiType.CONSULTING_AI; // consultingAI는 Claude로 매핑
             default -> null;
         };
+    }
+    
+    public Collection<StreamingSession> getStreamingSessions() {
+        return streamingSessions.values();
+    }
+    
+    public boolean terminateStreamingSessions(String roomId, String userId) {
+        return streamingSessions.entrySet().removeIf(entry -> {
+            StreamingSession session = entry.getValue();
+            return roomId.equals(session.getRoomId()) && userId.equals(session.getUserId());
+        });
     }
 }

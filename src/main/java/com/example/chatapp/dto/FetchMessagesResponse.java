@@ -5,7 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -15,5 +14,5 @@ import java.util.List;
 public class FetchMessagesResponse {
     private List<MessageResponse> messages;
     private boolean hasMore;
-    private LocalDateTime oldestTimestamp;
+    private String oldestTimestamp;  // ISO_INSTANT 형식 문자열
 }

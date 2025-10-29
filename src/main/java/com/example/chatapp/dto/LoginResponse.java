@@ -13,6 +13,6 @@ public class LoginResponse {
     private boolean success;
     private String token;
     private String sessionId;
-    private UserDto user;
+    private AuthUserDto user;
     private String message;
 }

@@ -19,11 +19,8 @@ public class FileResponse {
     private String originalname;
     private String mimetype;
     private long size;
-    private String uploadedBy;
-    private String roomId;
-    private boolean ragProcessed;
-    private LocalDateTime uploadedAt;
-    private String downloadUrl;
+    private String user;
+    private LocalDateTime uploadDate;
 
     // File 엔티티에서 FileResponse로 변환하는 정적 메서드
     public static FileResponse from(com.example.chatapp.model.File file) {
@@ -33,11 +30,8 @@ public class FileResponse {
                 .originalname(file.getOriginalname())
                 .mimetype(file.getMimetype())
                 .size(file.getSize())
-                .uploadedBy(file.getUploadedBy())
-                .roomId(file.getRoomId())
-                .ragProcessed(file.isRagProcessed())
-                .uploadedAt(file.getUploadedAt())
-                .downloadUrl("/api/files/download/" + file.getFilename())
+                .user(file.getUser())
+                .uploadDate(file.getUploadDate())
                 .build();
     }
 }
