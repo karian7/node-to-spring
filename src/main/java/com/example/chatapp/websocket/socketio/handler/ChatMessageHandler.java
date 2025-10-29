@@ -12,6 +12,8 @@ import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.AiService;
 import com.example.chatapp.websocket.socketio.StreamingSession;
+
+import static com.example.chatapp.websocket.socketio.SocketIOEvents.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -46,7 +48,7 @@ public class ChatMessageHandler {
                 String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
 
                 if (userId == null) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                         "code", "UNAUTHORIZED",
                         "message", "User authentication required"
                     ));
@@ -55,7 +57,7 @@ public class ChatMessageHandler {
 
                 // 데이터 검증
                 if (data == null) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                         "code", "MESSAGE_ERROR",
                         "message", "메시지 데이터가 없습니다."
                     ));
@@ -75,7 +77,7 @@ public class ChatMessageHandler {
                 Map<String, Object> fileData = (Map<String, Object>) data.get("fileData");
 
                 if (roomId == null) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                         "code", "MESSAGE_ERROR",
                         "message", "채팅방 정보가 없습니다."
                     ));
@@ -85,7 +87,7 @@ public class ChatMessageHandler {
                 // 사용자 조회
                 User sender = userRepository.findById(userId).orElse(null);
                 if (sender == null) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                         "code", "MESSAGE_ERROR",
                         "message", "User not found"
                     ));
@@ -95,7 +97,7 @@ public class ChatMessageHandler {
                 // 채팅방 권한 확인
                 Room room = roomRepository.findById(roomId).orElse(null);
                 if (room == null || !room.getParticipantIds().contains(userId)) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                         "code", "MESSAGE_ERROR",
                         "message", "채팅방 접근 권한이 없습니다."
                     ));
@@ -136,7 +138,7 @@ public class ChatMessageHandler {
 
                 // JavaScript 버전과 동일한 구조로 브로드캐스트
                 var roomOperations = socketIOServer.getRoomOperations("room:" + roomId);
-                roomOperations.sendEvent("message", createMessageResponse(savedMessage, sender));
+                roomOperations.sendEvent(MESSAGE, createMessageResponse(savedMessage, sender));
 
                 // AI 멘션이 있는 경우 AI 응답 생성 (JavaScript 버전과 동일)
                 if (!aiMentions.isEmpty()) {
@@ -263,7 +265,7 @@ public class ChatMessageHandler {
 
         // AI 스트리밍 시작 알림 (Node.js 버전과 동일한 이벤트명과 구조)
         socketIOServer.getRoomOperations("room:" + roomId)
-                .sendEvent("aiMessageStart", Map.of(
+                .sendEvent(AI_MESSAGE_START, Map.of(
                     "messageId", messageId,
                     "aiType", aiType,
                     "timestamp", timestamp
@@ -279,7 +281,7 @@ public class ChatMessageHandler {
                     log.warn("Unknown AI type: {}", aiType);
                     streamingSessions.remove(messageId);
                     socketIOServer.getRoomOperations("room:" + roomId)
-                            .sendEvent("aiMessageError", Map.of(
+                            .sendEvent(AI_MESSAGE_ERROR, Map.of(
                                 "messageId", messageId,
                                 "error", "지원하지 않는 AI 타입입니다: " + aiType,
                                 "aiType", aiType
@@ -305,7 +307,7 @@ public class ChatMessageHandler {
                         boolean isCodeBlock = detectCodeBlock(chunk);
                         
                         socketIOServer.getRoomOperations("room:" + roomId)
-                                .sendEvent("aiMessageChunk", Map.of(
+                                .sendEvent(AI_MESSAGE_CHUNK, Map.of(
                                     "messageId", messageId,
                                     "currentChunk", chunk,
                                     "fullContent", accumulatedContent.toString(),
@@ -340,7 +342,7 @@ public class ChatMessageHandler {
                             Message savedMessage = messageRepository.save(aiMessage);
 
                             socketIOServer.getRoomOperations("room:" + roomId)
-                                    .sendEvent("aiMessageComplete", Map.of(
+                                    .sendEvent(AI_MESSAGE_COMPLETE, Map.of(
                                         "messageId", messageId,
                                         "_id", savedMessage.getId(),
                                         "content", accumulatedContent.toString(),
@@ -356,7 +358,7 @@ public class ChatMessageHandler {
                             log.error("Error saving AI message for messageId: {}", messageId, e);
                             streamingSessions.remove(messageId);
                             socketIOServer.getRoomOperations("room:" + roomId)
-                                    .sendEvent("aiMessageError", Map.of(
+                                    .sendEvent(AI_MESSAGE_ERROR, Map.of(
                                         "messageId", messageId,
                                         "error", "AI 메시지 저장 중 오류가 발생했습니다.",
                                         "aiType", aiType

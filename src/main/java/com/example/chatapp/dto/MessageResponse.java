@@ -21,6 +21,7 @@ import java.util.Set;
 public class MessageResponse {
     @JsonProperty("_id")
     private String id;
+    @JsonProperty("room")
     private String roomId;
     private String content;
     private UserResponse sender;

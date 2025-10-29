@@ -16,6 +16,12 @@ import com.example.chatapp.repository.RoomRepository;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.websocket.socketio.handler.ChatMessageHandler;
 import jakarta.annotation.PostConstruct;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,12 +30,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import static com.example.chatapp.websocket.socketio.SocketIOEvents.*;
 
 /**
  * Socket.IO Chat Handler
@@ -65,7 +66,6 @@ public class SocketIOChatHandler {
     private static final int MAX_RETRIES = 3;
     private static final int RETRY_DELAY = 2000;
     private static final int DUPLICATE_LOGIN_TIMEOUT = 10000;
-    private static final int MESSAGE_LOAD_TIMEOUT = 10000;
 
     @PostConstruct
     public void initializeEventHandlers() {
@@ -74,22 +74,13 @@ public class SocketIOChatHandler {
         socketIOServer.addDisconnectListener(onDisconnect());
 
         // Chat events (same as Node.js backend) - Object로 타입 변경
-        socketIOServer.addEventListener("chatMessage", Map.class, chatMessageHandler.getListener());
-        socketIOServer.addEventListener("joinRoom", String.class, onJoinRoom());
-        socketIOServer.addEventListener("leaveRoom", String.class, onLeaveRoom());
-        socketIOServer.addEventListener("fetchPreviousMessages", FetchMessagesRequest.class, onFetchPreviousMessagesWithRetry());
-        socketIOServer.addEventListener("markMessagesAsRead", MarkAsReadRequest.class, onMarkMessagesAsRead());
-        socketIOServer.addEventListener("messageReaction", MessageReactionRequest.class, onMessageReaction());
-
-        // 강제 로그아웃 이벤트 추가 (Map 타입 제거하고 Object 사용)
-        socketIOServer.addEventListener("force_login", Map.class, onForceLogin());
-
-        // Notification events (same as Node.js backend)
-        socketIOServer.addEventListener("typing.start", TypingRequest.class, onTypingStart());
-        socketIOServer.addEventListener("typing.stop", TypingRequest.class, onTypingStop());
-        socketIOServer.addEventListener("users.online", Object.class, onGetOnlineUsers());
-        socketIOServer.addEventListener("user.activity", Object.class, onUpdateUserActivity());
-
+        socketIOServer.addEventListener(CHAT_MESSAGE, Map.class, chatMessageHandler.getListener());
+        socketIOServer.addEventListener(JOIN_ROOM, String.class, onJoinRoom());
+        socketIOServer.addEventListener(LEAVE_ROOM, String.class, onLeaveRoom());
+        socketIOServer.addEventListener(FETCH_PREVIOUS_MESSAGES, FetchMessagesRequest.class, onFetchPreviousMessagesWithRetry());
+        socketIOServer.addEventListener(MARK_MESSAGES_AS_READ, MarkAsReadRequest.class, onMarkMessagesAsRead());
+        socketIOServer.addEventListener(MESSAGE_REACTION, MessageReactionRequest.class, onMessageReaction());
+        socketIOServer.addEventListener(FORCE_LOGIN, Map.class, onForceLogin());
 
         log.info("Socket.IO event handlers initialized");
     }
@@ -107,7 +98,7 @@ public class SocketIOChatHandler {
                         SocketIOClient existingClient = socketClients.get(existingSocketId);
                         if (existingClient != null) {
                             // Send duplicate login notification
-                            existingClient.sendEvent("duplicate_login", Map.of(
+                            existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
                                 "type", "new_login_attempt",
                                 "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
                                 "ipAddress", client.getRemoteAddress().toString(),
@@ -118,7 +109,7 @@ public class SocketIOChatHandler {
                             new Thread(() -> {
                                 try {
                                     Thread.sleep(DUPLICATE_LOGIN_TIMEOUT); // 10 second delay like Node.js
-                                    existingClient.sendEvent("session_ended", Map.of(
+                                    existingClient.sendEvent(SESSION_ENDED, Map.of(
                                         "reason", "duplicate_login",
                                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                                     ));
@@ -139,12 +130,6 @@ public class SocketIOChatHandler {
                     // Join user to their personal room for direct messages
                     client.joinRoom("user:" + userId);
 
-                    // Broadcast user online status
-                    socketIOServer.getBroadcastOperations().sendEvent("user.status", Map.of(
-                        "userId", userId,
-                        "isOnline", true,
-                        "timestamp", LocalDateTime.now()
-                    ));
                 }
             } catch (Exception e) {
                 log.error("Error handling Socket.IO connection", e);
@@ -164,13 +149,6 @@ public class SocketIOChatHandler {
                     socketClients.remove(socketId);
 
                     log.info("Socket.IO user disconnected: {} ({})", userName, userId);
-
-                    // Broadcast user offline status (similar to Node.js)
-                    socketIOServer.getBroadcastOperations().sendEvent("user.status", Map.of(
-                        "userId", userId,
-                        "isOnline", false,
-                        "timestamp", LocalDateTime.now()
-                    ));
                 }
             } catch (Exception e) {
                 log.error("Error handling Socket.IO disconnection", e);
@@ -186,7 +164,7 @@ public class SocketIOChatHandler {
                 String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
 
                 if (userId == null) {
-                    client.sendEvent("joinRoomError", Map.of("message", "Unauthorized"));
+                    client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "Unauthorized"));
                     return;
                 }
 
@@ -195,7 +173,7 @@ public class SocketIOChatHandler {
                 if (roomId.equals(currentRoom)) {
                     log.debug("User {} already in room {}", userId, roomId);
                     client.joinRoom("room:" + roomId);
-                    client.sendEvent("joinRoomSuccess", Map.of("roomId", roomId));
+                    client.sendEvent(JOIN_ROOM_SUCCESS, Map.of("roomId", roomId));
                     return;
                 }
 
@@ -207,7 +185,7 @@ public class SocketIOChatHandler {
 
                     // 기존 방에 퇴장 알림
                     socketIOServer.getRoomOperations("room:" + currentRoom)
-                        .sendEvent("userLeft", Map.of(
+                        .sendEvent(USER_LEFT, Map.of(
                             "userId", userId,
                             "name", userName
                         ));
@@ -215,14 +193,14 @@ public class SocketIOChatHandler {
 
                 User user = userRepository.findById(userId).orElse(null);
                 if (user == null) {
-                    client.sendEvent("joinRoomError", Map.of("message", "User not found"));
+                    client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "User not found"));
                     return;
                 }
 
                 // 채팅방 참가 with profileImage
                 Room room = roomRepository.findById(roomId).orElse(null);
                 if (room == null) {
-                    client.sendEvent("joinRoomError", Map.of("message", "채팅방을 찾을 수 없습니다."));
+                    client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
                     return;
                 }
 
@@ -275,22 +253,22 @@ public class SocketIOChatHandler {
                     .activeStreams(activeStreams)
                     .build();
 
-                client.sendEvent("joinRoomSuccess", response);
+                client.sendEvent(JOIN_ROOM_SUCCESS, response);
 
                 // 입장 메시지 브로드캐스트
                 socketIOServer.getRoomOperations("room:" + roomId)
-                    .sendEvent("message", mapToMessageResponse(joinMessage, null));
+                    .sendEvent(MESSAGE, mapToMessageResponse(joinMessage, null));
 
                 // 참가자 목록 업데이트 브로드캐스트
                 socketIOServer.getRoomOperations("room:" + roomId)
-                    .sendEvent("participantsUpdate", participants);
+                    .sendEvent(PARTICIPANTS_UPDATE, participants);
 
                 log.info("User {} joined room {} successfully. Message count: {}, hasMore: {}",
                     userName, roomId, messageLoadResult.getMessages().size(), messageLoadResult.isHasMore());
 
             } catch (Exception e) {
                 log.error("Error handling joinRoom", e);
-                client.sendEvent("joinRoomError", Map.of(
+                client.sendEvent(JOIN_ROOM_ERROR, Map.of(
                     "message", e.getMessage() != null ? e.getMessage() : "채팅방 입장에 실패했습���다."
                 ));
             }
@@ -324,7 +302,7 @@ public class SocketIOChatHandler {
 
             } catch (Exception e) {
                 log.error("Error handling leaveRoom", e);
-                client.sendEvent("error", "방 퇴장 중 오류가 발생했습니다.");
+                client.sendEvent(ERROR, "방 퇴장 중 오류가 발생했습니다.");
             }
         };
     }
@@ -345,7 +323,7 @@ public class SocketIOChatHandler {
                 // 권한 체크
                 Room room = roomRepository.findById(data.roomId()).orElse(null);
                 if (room == null || !room.getParticipantIds().contains(userId)) {
-                    client.sendEvent("error", Map.of(
+                    client.sendEvent(ERROR, Map.of(
                             "type", "LOAD_ERROR",
                             "message", "채팅방 접근 권한이 없습니다."
                     ));
@@ -353,7 +331,7 @@ public class SocketIOChatHandler {
                 }
 
                 messageQueues.put(queueKey, true);
-                client.sendEvent("messageLoadStart");
+                client.sendEvent(MESSAGE_LOAD_START);
 
                 log.debug("Starting message load for user {} in room {}, before: {}",
                     userId, data.roomId(), data.before());
@@ -364,7 +342,7 @@ public class SocketIOChatHandler {
                             log.debug("Previous messages loaded - room: {}, count: {}, hasMore: {}, oldestTimestamp: {}",
                                 data.roomId(), result.getMessages().size(), result.isHasMore(), result.getOldestTimestamp());
                             
-                            client.sendEvent("previousMessagesLoaded", result);
+                            client.sendEvent(PREVIOUS_MESSAGES_LOADED, result);
 
                             // 딜레이 후 큐 정리
                             new Thread(() -> {
@@ -378,7 +356,7 @@ public class SocketIOChatHandler {
                         })
                         .exceptionally(throwable -> {
                             log.error("Message load failed for user {} in room {}", userId, data.roomId(), throwable);
-                            client.sendEvent("error", Map.of(
+                            client.sendEvent(ERROR, Map.of(
                                     "type", "LOAD_ERROR",
                                     "message", throwable.getMessage() != null ? throwable.getMessage() : "이전 메시지를 불러오는 중 오류가 발생했습니다."
                             ));
@@ -388,7 +366,7 @@ public class SocketIOChatHandler {
 
             } catch (Exception e) {
                 log.error("Error handling fetchPreviousMessages", e);
-                client.sendEvent("error", Map.of(
+                client.sendEvent(ERROR, Map.of(
                         "type", "LOAD_ERROR",
                         "message", "메시지 로드 중 오류가 발생했습니다."
                 ));
@@ -428,7 +406,7 @@ public class SocketIOChatHandler {
 
                 // Broadcast to room
                 socketIOServer.getRoomOperations("room:" + data.getRoomId())
-                        .sendEvent("messages.read", response);
+                        .sendEvent(MESSAGES_READ, response);
 
             } catch (Exception e) {
                 log.error("Error handling markMessagesAsRead", e);
@@ -466,7 +444,7 @@ public class SocketIOChatHandler {
 
                 // Broadcast to room
                 socketIOServer.getRoomOperations("room:" + message.getRoomId())
-                        .sendEvent("messageReactionUpdate", response);
+                        .sendEvent(MESSAGE_REACTION_UPDATE, response);
 
             } catch (Exception e) {
                 log.error("Error handling messageReaction", e);
@@ -487,7 +465,7 @@ public class SocketIOChatHandler {
                 Map<String, Object> requestData = (Map<String, Object>) data;
                 String token = (String) requestData.get("token");
                 if (token == null) {
-                    client.sendEvent("error", "Invalid token");
+                    client.sendEvent(ERROR, "Invalid token");
                     return;
                 }
 
@@ -495,7 +473,7 @@ public class SocketIOChatHandler {
                 // 여기서는 간단히 세션 종료 처리만 구현
 
                 // 세션 종료 처리
-                client.sendEvent("session_ended", Map.of(
+                client.sendEvent(SESSION_ENDED, Map.of(
                     "reason", "force_logout",
                     "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
@@ -505,132 +483,9 @@ public class SocketIOChatHandler {
 
             } catch (Exception e) {
                 log.error("Force login error", e);
-                client.sendEvent("error", Map.of(
+                client.sendEvent(ERROR, Map.of(
                     "message", "세션 종료 중 오류가 발생했습니다."
                 ));
-            }
-        };
-    }
-
-    // Notification event handlers
-    private DataListener<TypingRequest> onTypingStart() {
-        return (client, data, ackSender) -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
-
-                if (userId == null || userName == null) {
-                    client.sendEvent("error", "User authentication required");
-                    return;
-                }
-
-                User user = userRepository.findById(userId).orElse(null);
-                if (user == null) {
-                    client.sendEvent("error", "User not found: " + userId);
-                    return;
-                }
-
-                TypingEvent typingEvent = new TypingEvent(
-                        user.getId(),
-                        user.getName(),
-                        data.roomId(),
-                        true,
-                        LocalDateTime.now()
-                );
-
-                // Broadcast to room participants (equivalent to STOMP's convertAndSend)
-                socketIOServer.getRoomOperations("room:" + data.roomId())
-                        .sendEvent("typing", typingEvent);
-
-                log.debug("User {} started typing in room {}", user.getName(), data.roomId());
-
-            } catch (Exception e) {
-                log.error("Error handling typing start", e);
-                client.sendEvent("error", "Failed to handle typing start");
-            }
-        };
-    }
-
-    private DataListener<TypingRequest> onTypingStop() {
-        return (client, data, ackSender) -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                String userName = client.getHandshakeData().getHttpHeaders().get("socket.user.name");
-
-                if (userId == null || userName == null) {
-                    client.sendEvent("error", "User authentication required");
-                    return;
-                }
-
-                User user = userRepository.findById(userId).orElse(null);
-                if (user == null) {
-                    client.sendEvent("error", "User not found: " + userId);
-                    return;
-                }
-
-                TypingEvent typingEvent = new TypingEvent(
-                        user.getId(),
-                        user.getName(),
-                        data.roomId(),
-                        false,
-                        LocalDateTime.now()
-                );
-
-                // Broadcast to room participants (equivalent to STOMP's convertAndSend)
-                socketIOServer.getRoomOperations("room:" + data.roomId())
-                        .sendEvent("typing", typingEvent);
-
-                log.debug("User {} stopped typing in room {}", user.getName(), data.roomId());
-
-            } catch (Exception e) {
-                log.error("Error handling typing stop", e);
-                client.sendEvent("error", "Failed to handle typing stop");
-            }
-        };
-    }
-
-    private DataListener<Object> onGetOnlineUsers() {
-        return (client, data, ackSender) -> {
-            try {
-                var onlineUsers = connectedUsers.keySet().stream()
-                        .map(userId -> {
-                            User user = userRepository.findById(userId).orElse(null);
-                            if (user != null) {
-                                return Map.of(
-                                    "userId", userId,
-                                    "name", user.getName(),
-                                    "email", user.getEmail(),
-                                    "profileImage", user.getProfileImage() != null ? user.getProfileImage() : "",
-                                    "isOnline", true
-                                );
-                            }
-                            return null;
-                        })
-                        .filter(java.util.Objects::nonNull)
-                        .collect(Collectors.toList());
-
-                client.sendEvent("users.online.list", onlineUsers);
-
-            } catch (Exception e) {
-                log.error("Error getting online users", e);
-                client.sendEvent("error", "Failed to get online users");
-            }
-        };
-    }
-
-    private DataListener<Object> onUpdateUserActivity() {
-        return (client, data, ackSender) -> {
-            try {
-                String userId = client.getHandshakeData().getHttpHeaders().get("socket.user.id");
-                if (userId != null) {
-                    // Update last activity timestamp
-                    socketIOServer.getBroadcastOperations().sendEvent("user.activity.update", Map.of(
-                        "userId", userId,
-                        "lastActivity", LocalDateTime.now()
-                    ));
-                }
-            } catch (Exception e) {
-                log.error("Error updating user activity", e);
             }
         };
     }
@@ -754,7 +609,7 @@ public class SocketIOChatHandler {
             MessageResponse response = mapToMessageResponse(savedMessage, null);
 
             socketIOServer.getRoomOperations("room:" + roomId)
-                    .sendEvent("message", response);
+                    .sendEvent(MESSAGE, response);
 
         } catch (Exception e) {
             log.error("Error sending system message", e);
@@ -777,7 +632,7 @@ public class SocketIOChatHandler {
                         .collect(Collectors.toList());
 
                 socketIOServer.getRoomOperations("room:" + roomId)
-                        .sendEvent("participantsUpdate", participantList);
+                        .sendEvent(PARTICIPANTS_UPDATE, participantList);
             }
         } catch (Exception e) {
             log.error("Error broadcasting participant list", e);
@@ -884,37 +739,5 @@ public class SocketIOChatHandler {
             .build();
     }
     
-    /**
-     * 표준화된 에러 응답 전송 (Node.js 백엔드와 일관된 에러 구조)
-     * @param client SocketIO 클라이언트
-     * @param eventName 에러 이벤트명
-     * @param errorCode 에러 코드
-     * @param message 에러 메시지
-     * @param context 추가 컨텍스트 정보
-     */
-    private void sendError(SocketIOClient client, String eventName,
-                           String errorCode, String message,
-                           Map<String, Object> context) {
-        com.example.chatapp.dto.SocketErrorResponse errorResponse =
-            com.example.chatapp.dto.SocketErrorResponse.builder()
-                .code(errorCode)
-                .message(message)
-                .timestamp(LocalDateTime.now())
-                .context(context)
-                .build();
-        
-        client.sendEvent(eventName, errorResponse);
-        
-        log.error("[Socket.IO] {} - code: {}, message: {}, context: {}",
-                  eventName, errorCode, message, context);
-    }
-    
-    /**
-     * 간소화된 에러 전송 (컨텍스트 없음)
-     */
-    private void sendError(SocketIOClient client, String eventName,
-                           String errorCode, String message) {
-        sendError(client, eventName, errorCode, message, null);
-    }
 }
 
