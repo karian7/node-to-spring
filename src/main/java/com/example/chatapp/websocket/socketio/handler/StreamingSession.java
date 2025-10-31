@@ -1,5 +1,7 @@
-package com.example.chatapp.websocket.socketio;
+package com.example.chatapp.websocket.socketio.handler;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,4 +22,15 @@ public class StreamingSession {
     private LocalDateTime timestamp;
     private long lastUpdate;
     private boolean isStreaming;
+    
+    public String timestampToString() {
+        String timestampStr = null;
+        if (getTimestamp() != null) {
+            Instant instant = getTimestamp()
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant();
+            timestampStr = instant.toString();
+        }
+        return timestampStr;
+    }
 }

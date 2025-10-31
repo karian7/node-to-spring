@@ -1,19 +1,20 @@
-package com.example.chatapp.websocket.socketio;
+package com.example.chatapp.websocket.socketio.handler;
 
 import com.corundumstudio.socketio.SocketIOClient;
 import java.util.concurrent.ScheduledFuture;
 
-final class PendingDuplicateLogin {
-    static final int DUPLICATE_LOGIN_TIMEOUT = 10000;
-    private final SocketIOClient existingClient;
+/**
+ * 중복 로그인 정보를 담는 내부 클래스
+ */
+public class PendingDuplicateLogin {
     private final String existingSocketId;
     private final SocketIOClient newClient;
     private final String newSocketId;
     private ScheduledFuture<?> timeoutTask;
     
-    PendingDuplicateLogin(SocketIOClient existingClient, String existingSocketId,
-                          SocketIOClient newClient, String newSocketId) {
-        this.existingClient = existingClient;
+    PendingDuplicateLogin(String existingSocketId,
+                          SocketIOClient newClient,
+                          String newSocketId) {
         this.existingSocketId = existingSocketId;
         this.newClient = newClient;
         this.newSocketId = newSocketId;

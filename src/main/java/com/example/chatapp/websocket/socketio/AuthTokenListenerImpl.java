@@ -8,6 +8,7 @@ import com.example.chatapp.model.User;
 import com.example.chatapp.repository.UserRepository;
 import com.example.chatapp.service.SessionService;
 import com.example.chatapp.util.JwtUtil;
+import com.example.chatapp.websocket.socketio.handler.ConnectionLoginHandler;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,7 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
     private final JwtUtil jwtUtil;
     private final SessionService sessionService;
     private final UserRepository userRepository;
-    private final ObjectProvider<SocketIOChatHandler> socketIOChatHandlerProvider;
+    private final ObjectProvider<ConnectionLoginHandler> socketIOChatHandlerProvider;
     
 
     @Override

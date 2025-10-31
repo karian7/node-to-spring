@@ -102,4 +102,67 @@ public class Message {
     public long toTimestampMillis() {
         return timestamp.atZone(java.time.ZoneId.systemDefault()).toEpochSecond() * 1000;
     }
+    
+    /**
+     * 메시지에 리액션을 추가한다.
+     * Tell, Don't Ask 원칙을 준수하여 도메인 로직을 캡슐화한다.
+     *
+     * @param reaction 리액션 이모지
+     * @param userId 사용자 ID
+     * @return 리액션이 추가되었으면 true, 이미 존재하면 false
+     */
+    public boolean addReaction(String reaction, String userId) {
+        if (this.reactions == null) {
+            this.reactions = new HashMap<>();
+        }
+        Set<String> userReactions = this.reactions.computeIfAbsent(
+            reaction,
+            key -> new java.util.HashSet<>()
+        );
+        return userReactions.add(userId);
+    }
+    
+    /**
+     * 메시지에서 리액션을 제거한다.
+     *
+     * @param reaction 리액션 이모지
+     * @param userId 사용자 ID
+     * @return 리액션이 제거되었으면 true, 존재하지 않았으면 false
+     */
+    public boolean removeReaction(String reaction, String userId) {
+        if (this.reactions == null) {
+            return false;
+        }
+        Set<String> userReactions = this.reactions.get(reaction);
+        if (userReactions != null && userReactions.remove(userId)) {
+            if (userReactions.isEmpty()) {
+                this.reactions.remove(reaction);
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * 파일 메타데이터가 필요한지 확인한다.
+     *
+     * @return fileId는 있지만 metadata가 없으면 true
+     */
+    public boolean needsFileMetadata() {
+        return this.fileId != null && this.metadata == null;
+    }
+    
+    /**
+     * 파일 메타데이터를 메시지에 첨부한다.
+     *
+     * @param file 파일 객체
+     */
+    public void attachFileMetadata(com.example.chatapp.model.File file) {
+        if (this.fileId != null && this.metadata == null) {
+            this.metadata = new HashMap<>();
+            this.metadata.put("fileType", file.getMimetype());
+            this.metadata.put("fileSize", file.getSize());
+            this.metadata.put("originalName", file.getOriginalname());
+        }
+    }
 }
