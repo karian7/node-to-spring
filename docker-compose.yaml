@@ -2,7 +2,7 @@ version: '3.8'
 services:
   mongo:
     image: mongo:6.0
-    container_name: mongo
+    container_name: mongo-ktb
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -13,7 +13,7 @@ services:
 
   redis:
     image: redis:7.2
-    container_name: redis
+    container_name: redis-ktb
     restart: unless-stopped
     ports:
       - "6379:6379"

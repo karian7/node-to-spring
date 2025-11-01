@@ -24,7 +24,7 @@
     -   `bcryptjs`를 사용한 비밀번호 해싱.
     -   인증 미들웨어 (`/backend/middleware/auth.js`)를 통해 라우트 보호.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/controller/AuthController.java`, `/src/main/java/com/example/chatapp/security`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/controller/AuthController.java`, `/src/main/java/com/ktb/chatapp/security`)**
     -   Spring Security를 사용한 인증 및 권한 부여.
     -   JWT 토큰 생성, 검증 및 재발급 로직 구현.
     -   `PasswordEncoder`를 사용한 비밀번호 암호화.
@@ -54,7 +54,7 @@
     -   사용자 정보 조회, 수정 기능.
     -   Mongoose `User` 모델 사용.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/controller/UserController.java`, `/src/main/java/com/example/chatapp/service/UserService.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/controller/UserController.java`, `/src/main/java/com/ktb/chatapp/service/UserService.java`)**
     -   `UserController`에서 사용자 관련 API 제공.
     -   `UserService`에서 비즈니스 로직 처리.
     -   `User` 모델 및 `UserRepository`를 통한 데이터베이스 연동.
@@ -79,7 +79,7 @@
     -   채팅방 생성, 조회, 참여 기능.
     -   Mongoose `Room` 모델 사용.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/controller/RoomController.java`, `/src/main/java/com/example/chatapp/service/RoomService.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/controller/RoomController.java`, `/src/main/java/com/ktb/chatapp/service/RoomService.java`)**
     -   `RoomController`에서 채팅방 관련 API 제공.
     -   `RoomService`에서 비즈니스 로직 처리.
     -   `Room` 모델 및 `RoomRepository`를 통한 데이터베이스 연동.
@@ -113,9 +113,9 @@
     -   이전 메시지 조회를 위한 API.
     -   Mongoose `Message` 모델 사용.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/websocket`, `/src/main/java/com/example/chatapp/controller/MessageController.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/websocket`, `/src/main/java/com/ktb/chatapp/controller/MessageController.java`)**
     -   기존 STOMP 기반 구현 대신 `netty-socketio` + Redisson 환경으로 Socket.IO 호환 실시간 메시징을 구축할 예정.
-    -   `SocketIOChatHandler` 등 소켓 처리 레이어에서 이벤트를 관리하고, `/src/main/java/com/example/chatapp/controller/MessageController.java`는 REST 메시지 API를 담당한다.
+    -   `SocketIOChatHandler` 등 소켓 처리 레이어에서 이벤트를 관리하고, `/src/main/java/com/ktb/chatapp/controller/MessageController.java`는 REST 메시지 API를 담당한다.
     -   `Message` 모델 및 `MessageRepository`를 통한 데이터베이스 연동.
 
 #### 🔍 **분석 결과 - 메시징 기능 차이점**
@@ -147,7 +147,7 @@
     -   업로드된 파일 정보(메타데이터)를 MongoDB에 저장.
     -   Mongoose `File` 모델 사용.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/controller/FileController.java`, `/src/main/java/com/example/chatapp/service/FileService.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/controller/FileController.java`, `/src/main/java/com/ktb/chatapp/service/FileService.java`)**
     -   `MultipartFile`을 사용한 파일 업로드 처리.
     -   `FileService`에서 파일 저장 및 메타데이터 관리 로직 구현.
     -   `File` 모델 및 `FileRepository`를 통한 데이터베이스 연동.
@@ -191,7 +191,7 @@
 -   **Node.js (`/backend/services/aiService.js`)**
     -   AI 관련 기능 (예: 챗봇, 메시지 분석 등)을 제공하는 서비스.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/controller/AiController.java`, `/src/main/java/com/example/chatapp/service/AiService.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/controller/AiController.java`, `/src/main/java/com/ktb/chatapp/service/AiService.java`)**
     -   외부 AI API (e.g., OpenAI)와 연동하여 유사 기능 구현.
     -   `AiController` 및 `AiService`에서 관련 로직 처리.
 
@@ -216,9 +216,9 @@
 - Spring Boot: ✅ **기존 완료** - ChatMessageHandler에 모든 이벤트 구현 완료
 
 **구현된 파일**:
-- `src/main/java/com/example/chatapp/model/AiType.java` - 페르소나 정의
-- `src/main/java/com/example/chatapp/service/impl/AiServiceImpl.java` - OpenAI 스트리밍 연동
-- `src/main/java/com/example/chatapp/websocket/socketio/handler/ChatMessageHandler.java` - Socket 이벤트 처리 (기존 완료)
+- `src/main/java/com/ktb/chatapp/model/AiType.java` - 페르소나 정의
+- `src/main/java/com/ktb/chatapp/service/impl/AiServiceImpl.java` - OpenAI 스트리밍 연동
+- `src/main/java/com/ktb/chatapp/websocket/socketio/handler/ChatMessageHandler.java` - Socket 이벤트 처리 (기존 완료)
 
 **상세 분석 문서**: `/docs/implementation-analysis/07-ai-integration.md`
 
@@ -227,7 +227,7 @@
 -   **Node.js (`/backend/services/sessionService.js`, `/backend/utils/redisClient.js`)**
     -   Redis를 사용하여 사용자 세션 또는 소켓 연결 정보 관리.
 
--   **Spring Boot (`/src/main/java/com/example/chatapp/config/RedisConfig.java`)**
+-   **Spring Boot (`/src/main/java/com/ktb/chatapp/config/RedisConfig.java`)**
     -   Spring Data Redis를 사용하여 Redis 연동.
     -   `RedisTemplate` 또는 `RedisRepository`를 활용하여 데이터 저장 및 조회.
     -   WebSocket 세션 정보 등을 Redis에 저장하여 관리.

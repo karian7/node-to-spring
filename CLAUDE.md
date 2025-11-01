@@ -1,70 +1,82 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+이 파일은 Claude Code (claude.ai/code)가 이 레포지토리의 코드를 작업할 때 참고하는 가이드입니다.
 
-## Project Overview
+## 프로젝트 개요
 
-This is a chat application backend that exists in a dual architecture:
-- **Legacy Node.js backend** in `/backend/` directory (Express.js + Socket.IO + MongoDB + Redis)
-- **New Java Spring Boot backend** in `/src/main/java/` (Spring Boot + Spring Security + MongoDB + Redis + SocketIO)
+Spring Boot 3.5와 Java 21 기반의 실시간 채팅 애플리케이션 백엔드입니다.
+- MongoDB를 통한 데이터 영속화
+- Redis 기반 세션 관리 및 레이트 리밋
+- JWT 인증 및 Spring Security
+- SocketIO를 통한 실시간 통신
+- OpenAI 연동 AI 채팅 기능
 
-The project is currently in **migration phase** from Node.js to Java Spring Boot. The Migration.md file contains detailed analysis of differences and completed/pending tasks.
+상세한 기술 스택 및 환경 설정은 [README.md](README.md)를 참조하세요.
 
-## Development Commands
+## 개발 명령어
 
-### Java Spring Boot (Primary)
 ```bash
-# Build and test
+# 빌드 및 테스트
 mvn clean install
 
-# Run application (starts on port 5001)
+# 애플리케이션 실행 (포트 5001)
 mvn spring-boot:run
-# or
-java -jar target/chat-app-0.0.1-SNAPSHOT.jar
 
-# Run tests
+# 테스트 실행
 mvn test
+
+# 편의 명령 (Makefile)
+make dev      # dev 프로파일로 실행
+make build    # 빌드 및 테스트
+make test     # 테스트만 실행
 ```
 
-### Node.js (Legacy - being phased out)
-```bash
-cd backend/
-npm start          # Production
-npm run dev        # Development with nodemon
+## 아키텍처
+
+### 핵심 기술
+자세한 내용은 [README.md의 주요 기술 스택](README.md#주요-기술-스택) 참조
+
+### 패키지 구조
+
+```
+src/main/java/com/ktb/chatapp/
+├── controller/     # REST API 엔드포인트
+├── service/        # 비즈니스 로직 레이어
+├── repository/     # MongoDB 데이터 접근 계층
+├── dto/            # 요청/응답 데이터 전송 객체
+├── model/          # 엔티티 클래스 (MongoDB 도큐먼트)
+├── config/         # 설정 클래스 (Async, Redis, WebSocket 등)
+├── security/       # JWT 인증 및 인가
+├── websocket/      # SocketIO 이벤트 핸들러
+├── util/           # 유틸리티 클래스
+├── validation/     # 커스텀 검증 로직 및 어노테이션
+├── annotation/     # 커스텀 어노테이션
+├── event/          # 애플리케이션 이벤트
+└── exception/      # 예외 처리 클래스
 ```
 
-## Architecture
+### 주요 컴포넌트
 
-### Core Technologies
-- **Backend**: Spring Boot 3.5.4 with Java 21
-- **Database**: MongoDB (bootcamp-chat database)
-- **Cache**: Redis (session management, rate limiting)
-- **Real-time**: SocketIO (netty-socketio library)
-- **Security**: Spring Security + JWT tokens
-- **File Handling**: MultipartFile uploads to `/uploads` directory
+#### 인증 및 세션 관리
+- JWT 토큰 기반 인증 (`x-auth-token`, `x-session-id` 헤더)
+- Redis 세션 저장소 (IP, User-Agent, 디바이스 정보 포함)
+- IP 기반 레이트 리밋 (분당 60 요청)
+- 커스텀 검증 어노테이션: `@ValidEmail`, `@ValidPassword`, `@ValidName`
 
-### Key Components
+#### 실시간 통신
+- SocketIO 서버 (포트 5002, REST API와 분리)
+- 이벤트 기반 아키텍처로 채팅 메시지, 타이핑 표시, 방 알림 처리
+- 사용자 접속 상태 추적
+- 메시지 읽음 상태 실시간 업데이트
 
-#### Authentication & Session Management
-- JWT tokens with custom headers (`x-auth-token`, `x-session-id`)
-- Redis-based session storage with metadata (IP, User-Agent, device info)
-- Rate limiting (60 requests/minute per IP)
-- Custom validation annotations (`@ValidEmail`, `@ValidPassword`, `@ValidName`)
+#### 파일 시스템
+- 경로 순회 공격 방지가 적용된 안전한 파일 업로드
+- MongoDB에 파일 메타데이터 저장
+- RAG 시스템 연동을 위한 AI 처리
+- 업로드 실패 시 자동 정리
 
-#### Real-time Communication
-- SocketIO server on port 5002 (separate from REST API on 5001)
-- Event-driven architecture for chat messages, typing indicators, room notifications
-- Connection state management with user presence tracking
-- Message read status tracking with real-time updates
-
-#### File System
-- Secure file uploads with path traversal protection
-- File metadata storage in MongoDB
-- Integration with RAG system for AI processing
-- Automatic cleanup on upload failures
-
-#### API Response Structure
-Standardized responses using `ApiResponse<T>`:
+#### API 응답 구조
+모든 API는 `ApiResponse<T>` 형식의 표준화된 응답 사용:
 ```json
 {
   "success": true/false,
@@ -73,48 +85,54 @@ Standardized responses using `ApiResponse<T>`:
 }
 ```
 
-### Package Structure
-- `controller/` - REST API endpoints
-- `service/` - Business logic layer
-- `repository/` - MongoDB data access
-- `dto/` - Request/response objects
-- `model/` - Entity classes
-- `config/` - Configuration classes
-- `security/` - JWT and authentication
-- `websocket/` - SocketIO handlers
-- `util/` - Helper utilities
-- `validation/` - Custom validators
+## 설정
 
-## Configuration
+### 필수 환경 설정
+환경 변수 및 의존성 서비스 설정은 [README.md의 환경 변수 설정](README.md#환경-변수-설정) 및 [종속 서비스 실행](README.md#종속-서비스-실행) 참조
 
-### Required Environment Setup
-1. MongoDB running locally (default connection)
-2. Redis server on localhost:6379
-3. Set OpenAI API key in `application.properties`
-4. Java 21 installed
-5. Maven 3.x installed
+### 주요 설정 파일
+- `src/main/resources/application.properties` - 메인 설정
+- `.env` - 환경 변수 (암호화 키, JWT 시크릿, OpenAI API 키 등)
+- `docker-compose.yml` - MongoDB 및 Redis 컨테이너 설정
 
-### Important Configuration Files
-- `src/main/resources/application.properties` - Main configuration
-- `Migration.md` - Detailed migration status and task tracking
+## 개발 가이드라인
 
-## Migration Status
+### 코드 작성 규칙
+1. **DTO 패턴 준수**: 요청/응답은 반드시 DTO 클래스 사용
+2. **서비스 레이어 분리**: 비즈니스 로직은 Service 클래스에 구현
+3. **표준 응답 형식**: 모든 API는 `ApiResponse<T>` 반환
+4. **검증 어노테이션**: 입력 검증은 커스텀 검증 어노테이션 활용
+5. **예외 처리**: 일관된 예외 처리를 위해 `@ControllerAdvice` 활용
 
-The codebase is transitioning from Node.js to Spring Boot. Major completed features:
-- ✅ Authentication system with session management
-- ✅ Message system with read status tracking  
-- ✅ File upload with security hardening
-- ✅ Rate limiting and security enhancements
-- ✅ Real-time WebSocket communication
-- ✅ Room management with pagination
+### 보안 고려사항
+1. **파일 업로드**: 반드시 `FileSecurityUtil` 사용하여 경로 검증
+2. **JWT 토큰**: 민감한 정보는 토큰에 포함하지 않음
+3. **레이트 리밋**: IP 기반 요청 제한 준수
+4. **세션 관리**: Redis 세션 만료 시간 적절히 설정
 
-Remaining work focuses on AI service enhancement and user profile features (see Migration.md for details).
+### WebSocket 이벤트 처리
+1. SocketIO 이벤트는 `websocket/` 패키지의 핸들러에서 처리
+2. 이벤트 타입은 명확하게 정의하고 문서화
+3. 연결 상태 및 오류 처리 로직 필수 포함
 
-## Development Notes
+### 테스트
+- Testcontainers를 사용한 통합 테스트 (MongoDB, Redis)
+- JUnit 5 기반 단위 테스트
+- 테스트 실행에는 Docker 필요
 
-- The `/backend` directory contains the legacy Node.js code that is being replaced
-- New features should be implemented in the Java Spring Boot codebase
-- Follow existing patterns for DTO classes, service layers, and error handling
-- All API endpoints should return standardized `ApiResponse` format
-- WebSocket events should be handled through the SocketIO configuration
-- File uploads must use the security utilities in `FileSecurityUtil`
+## 문제 해결
+
+일반적인 문제 및 해결 방법은 [README.md의 트러블슈팅](README.md#트러블슈팅) 참조
+
+### 추가 팁
+- SocketIO 연결 문제: `socketio.server.port` 설정 확인
+- MongoDB 연결 오류: Docker 컨테이너 상태 및 `MONGO_URI` 환경 변수 확인
+- Redis 캐시 문제: Redis 서버 가용성 및 `REDIS_HOST`/`REDIS_PORT` 확인
+- JWT 토큰 오류: `.env` 파일의 `JWT_SECRET` 설정 확인
+
+## 참고 자료
+
+- [README.md](README.md) - 프로젝트 개요 및 실행 가이드
+- [AGENTS.md](AGENTS.md) - AI 에이전트 활용 가이드
+- `docs/` 디렉토리 - 설계 문서 및 아키텍처 참고 자료
+- `spec/` 디렉토리 - API 명세 및 요구사항

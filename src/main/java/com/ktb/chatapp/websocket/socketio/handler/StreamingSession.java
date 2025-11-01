@@ -1,0 +1,68 @@
+package com.ktb.chatapp.websocket.socketio.handler;
+
+import com.ktb.chatapp.model.AiType;
+import java.time.LocalDateTime;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Slf4j
+public class StreamingSession {
+    private String messageId;
+    private String roomId;
+    private String userId;
+    private String aiType;
+    private String query;
+    private LocalDateTime timestamp;
+    private long lastUpdate = System.currentTimeMillis();
+    private long startTimeMillis = System.currentTimeMillis();
+    @Builder.Default
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private StringBuilder contentBuilder = new StringBuilder();
+
+    public AiType aiTypeEnum() {
+        if (aiType == null) return null;
+
+        var aiTypeEnum = switch (aiType.toLowerCase()) {
+            case "wayneai" -> AiType.WAYNE_AI; // wayneAI는 GPT로 매핑
+            case "consultingai" -> AiType.CONSULTING_AI; // consultingAI는 Claude로 매핑
+            default -> null;
+        };
+        if (aiTypeEnum == null) {
+            log.warn("Unknown AI type: {}", aiType);
+        }
+        return aiTypeEnum;
+    }
+
+    public String getContent() {
+        return contentBuilder.toString();
+    }
+
+    public void setContent(String content) {
+        contentBuilder.setLength(0);
+        if (content != null) {
+            contentBuilder.append(content);
+        }
+    }
+
+    public void appendContent(String contentChunk) {
+        if (contentChunk != null) {
+            contentBuilder.append(contentChunk);
+            lastUpdate = System.currentTimeMillis();
+        }
+    }
+    
+    public long generationTimeMillis() {
+        return System.currentTimeMillis() - startTimeMillis;
+    }
+}

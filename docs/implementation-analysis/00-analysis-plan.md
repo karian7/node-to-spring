@@ -302,7 +302,7 @@ docs/
 ## 🔖 참고 링크
 
 - **스펙 문서 위치**: `/spac/`
-- **Java 구현 위치**: `/src/main/java/com/example/chatapp/`
+- **Java 구현 위치**: `/src/main/java/com/ktb/chatapp/`
 - **Node.js 참조 위치**: `/backend/`
 
 ---

@@ -30,7 +30,7 @@ String userId = client.get("user").getId(); // 혹은 getUserId(client) 유틸 �
 
 ### Task 1.1: FORCE_LOGIN - JWT 검증 구현
 **Priority**: 🔴 Critical  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 457-488  
 **심각도**: ⚠️ **보안 취약점** - 누구나 다른 사용자 세션 강제 종료 가능
 
@@ -99,7 +99,7 @@ private DataListener<Map> onForceLogin() {
 
 ### Task 1.2: MARK_MESSAGES_AS_READ - roomId 검증 추가
 **Priority**: 🔴 Critical  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 377-415  
 **심각도**: ⚠️ **보안 취약점** - 권한 없는 room의 메시지 읽음 처리 가능
 
@@ -174,7 +174,7 @@ private DataListener<MarkAsReadRequest> onMarkMessagesAsRead() {
 
 ### Task 1.3: MESSAGE_REACTION - 인증 검증 추가
 **Priority**: 🔴 Critical  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 417-453  
 **심각도**: ⚠️ **NPE 위험** - userId null 체크 없음
 
@@ -257,7 +257,7 @@ private DataListener<MessageReactionRequest> onMessageReaction() {
 
 ### Task 1.4: CHAT_MESSAGE - 세션 재확인 추가
 **Priority**: 🔴 Critical  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/handler/ChatMessageHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/handler/ChatMessageHandler.java`  
 **라인**: 42-161  
 **심각도**: ⚠️ **보안 취약점** - 세션 만료 확인 없음
 
@@ -322,7 +322,7 @@ public DataListener<Map> getListener() {
 
 ### Task 2.1: LEAVE_ROOM - 메모리 정리 로직 추가
 **Priority**: 🟠 High  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 278-308  
 **심각도**: ⚠️ **메모리 누수** - 장기 실행 시 메모리 누적
 
@@ -430,7 +430,7 @@ StreamingSession session = StreamingSession.builder()
 
 ### Task 3.1: JOIN_ROOM - 읽음 상태 자동 업데이트
 **Priority**: 🟡 Medium  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 676-727 (loadInitialMessages 메서드)
 
 **현재 문제**:
@@ -473,7 +473,7 @@ private FetchMessagesResponse loadInitialMessages(String roomId) {
 
 ### Task 3.2: JOIN_ROOM & FETCH_PREVIOUS_MESSAGES - 타임아웃 추가
 **Priority**: 🟡 Medium  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 491-562, 676-727
 
 **현재 문제**:
@@ -523,7 +523,7 @@ private CompletableFuture<FetchMessagesResponse> loadMessagesWithRetry(
 
 ### Task 4.1: JOIN_ROOM - Room 업데이트 Atomic 연산
 **Priority**: 🟢 Low  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 207-208
 
 **변경 내용**:
@@ -538,7 +538,7 @@ Room addParticipant(String roomId, String userId);
 
 ### Task 4.2: 입장 메시지 표현 통일
 **Priority**: 🟢 Low  
-**파일**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`  
+**파일**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`  
 **라인**: 217
 
 **변경 내용**:
@@ -581,7 +581,7 @@ Room addParticipant(String roomId, String userId);
 ## 📚 참고 파일
 
 - **Node.js 구현**: `backend/sockets/chat.js`
-- **Java 구현**: `src/main/java/com/example/chatapp/websocket/socketio/SocketIOChatHandler.java`
+- **Java 구현**: `src/main/java/com/ktb/chatapp/websocket/socketio/SocketIOChatHandler.java`
 - **분석 문서**: 본 파일
 
 ---
