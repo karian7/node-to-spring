@@ -80,6 +80,7 @@ public class MessageLoader {
         
         // 메시지 응답 생성
         List<MessageResponse> messageResponses = sortedMessages.stream()
+                .filter(message -> message.getSenderId() != null)
                 .map(message -> {
                     var user = userFunction.apply(message.getSenderId());
                     return messageResponseMapper.mapToMessageResponse(message, user);
