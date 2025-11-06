@@ -49,7 +49,7 @@ public class File {
     private LocalDateTime uploadDate;
 
     /**
-     * 미리보기 지원 여부 확인 (Node.js isPreviewable과 동일)
+     * 미리보기 지원 여부 확인
      */
     public boolean isPreviewable() {
         List<String> previewableTypes = Arrays.asList(
@@ -62,7 +62,7 @@ public class File {
     }
 
     /**
-     * Content-Disposition 헤더 생성 (Node.js getContentDisposition과 동일)
+     * Content-Disposition 헤더 생성
      */
     public String getContentDisposition(String type) {
         String encodedFilename = URLEncoder.encode(this.originalname, StandardCharsets.UTF_8)
@@ -77,7 +77,7 @@ public class File {
     }
 
     /**
-     * 파일 URL 생성 (Node.js getFileUrl과 동일)
+     * 파일 URL 생성
      */
     public String getFileUrl(String type) {
         return String.format("/api/files/%s/%s",

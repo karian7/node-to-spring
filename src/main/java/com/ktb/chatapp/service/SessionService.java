@@ -1,74 +1,37 @@
 package com.ktb.chatapp.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.Duration;
+import com.ktb.chatapp.model.Session;
+import com.ktb.chatapp.repository.SessionRepository;
 import java.time.Instant;
 import java.util.UUID;
-import lombok.*;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Service;
+
+import static com.ktb.chatapp.model.Session.SESSION_TTL;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class SessionService {
 
-    private final RedisTemplate<String, String> redisTemplate;
-    private final ObjectMapper objectMapper;
-
-    private static final long SESSION_TTL_SEC = 30 * 60;
-    private static final String SESSION_PREFIX = "session:";
-    private static final String SESSION_ID_PREFIX = "sessionId:";
-    private static final String USER_SESSIONS_PREFIX = "user_sessions:";
-    private static final String ACTIVE_SESSION_PREFIX = "active_session:";
+    private final SessionRepository sessionRepository;
+    public static final long SESSION_TTL_SEC = DurationStyle.detectAndParse(SESSION_TTL).getSeconds();
     private static final long SESSION_TIMEOUT = SESSION_TTL_SEC * 1000;
-
-    // Key generation methods
-    private String getSessionKey(String userId) {
-        return SESSION_PREFIX + userId;
-    }
-
-    private String getSessionIdKey(String sessionId) {
-        return SESSION_ID_PREFIX + sessionId;
-    }
-
-    private String getUserSessionsKey(String userId) {
-        return USER_SESSIONS_PREFIX + userId;
-    }
-
-    private String getActiveSessionKey(String userId) {
-        return ACTIVE_SESSION_PREFIX + userId;
-    }
 
     private String generateSessionId() {
         return UUID.randomUUID().toString().replace("-", "");
     }
 
-    // Safe JSON operations
-    private boolean setJson(String key, Object value, long ttlSeconds) {
-        try {
-            String jsonString = objectMapper.writeValueAsString(value);
-            redisTemplate.opsForValue().set(key, jsonString, Duration.ofSeconds(ttlSeconds));
-            return true;
-        } catch (JsonProcessingException e) {
-            log.error("JSON serialization error for key: {}", key, e);
-            return false;
-        }
-    }
-
-    private <T> T getJson(String key, Class<T> clazz) {
-        try {
-            String value = redisTemplate.opsForValue().get(key);
-            if (value == null) {
-                return null;
-            }
-            return objectMapper.readValue(value, clazz);
-        } catch (JsonProcessingException e) {
-            log.error("JSON deserialization error for key: {}", key, e);
-            return null;
-        }
+    private SessionData toSessionData(Session session) {
+        return SessionData.builder()
+                .userId(session.getUserId())
+                .sessionId(session.getSessionId())
+                .createdAt(session.getCreatedAt())
+                .lastActivity(session.getLastActivity())
+                .metadata(session.getMetadata())
+                .build();
     }
 
     public SessionCreationResult createSession(String userId, SessionMetadata metadata) {
@@ -77,29 +40,20 @@ public class SessionService {
             removeAllUserSessions(userId);
 
             String sessionId = generateSessionId();
-            SessionData sessionData = SessionData.builder()
+            long now = Instant.now().toEpochMilli();
+            
+            Session session = Session.builder()
                     .userId(userId)
                     .sessionId(sessionId)
-                    .createdAt(Instant.now().toEpochMilli())
-                    .lastActivity(Instant.now().toEpochMilli())
+                    .createdAt(now)
+                    .lastActivity(now)
                     .metadata(metadata)
+                    .expiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC))
                     .build();
 
-            String sessionKey = getSessionKey(userId);
-            String sessionIdKey = getSessionIdKey(sessionId);
-            String userSessionsKey = getUserSessionsKey(userId);
-            String activeSessionKey = getActiveSessionKey(userId);
-
-            // Save session data
-            boolean saved = setJson(sessionKey, sessionData, SESSION_TTL_SEC);
-            if (!saved) {
-                throw new RuntimeException("세션 데이터 저장에 실패했습니다.");
-            }
-
-            // Save session ID mappings
-            redisTemplate.opsForValue().set(sessionIdKey, userId, Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.opsForValue().set(userSessionsKey, sessionId, Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.opsForValue().set(activeSessionKey, sessionId, Duration.ofSeconds(SESSION_TTL_SEC));
+            session = sessionRepository.save(session);
+            
+            SessionData sessionData = toSessionData(session);
 
             return SessionCreationResult.builder()
                     .sessionId(sessionId)
@@ -119,45 +73,29 @@ public class SessionService {
                 return SessionValidationResult.invalid("INVALID_PARAMETERS", "유효하지 않은 세션 파라미터");
             }
 
-            // Check active session
-            String activeSessionKey = getActiveSessionKey(userId);
-            String activeSessionId = redisTemplate.opsForValue().get(activeSessionKey);
-
-            if (activeSessionId == null || !activeSessionId.equals(sessionId)) {
-                log.debug("Session validation failed - userId: {}, sessionId: {}, activeSessionId: {}",
-                         userId, sessionId, activeSessionId);
-                return SessionValidationResult.invalid("INVALID_SESSION",
-                    "다른 기기에서 로그인되어 현재 세션이 만료되었습니다.");
+            Session session = sessionRepository.findByUserId(userId).orElse(null);
+            
+            if (session == null) {
+                return SessionValidationResult.invalid("INVALID_SESSION", "세션을 찾을 수 없습니다.");
             }
 
-            // Validate session data
-            String sessionKey = getSessionKey(userId);
-            SessionData sessionData = getJson(sessionKey, SessionData.class);
-
-            if (sessionData == null) {
-                return SessionValidationResult.invalid("SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.");
+            if (!sessionId.equals(session.getSessionId())) {
+                return SessionValidationResult.invalid("INVALID_SESSION", "잘못된 세션 ID입니다.");
             }
 
-            // Check session timeout
-            if (System.currentTimeMillis() - sessionData.getLastActivity() > SESSION_TIMEOUT) {
-                removeSession(userId);
+            // Check if session has timed out
+            long now = Instant.now().toEpochMilli();
+            if (now - session.getLastActivity() > SESSION_TIMEOUT) {
+                removeSession(userId, sessionId);
                 return SessionValidationResult.invalid("SESSION_EXPIRED", "세션이 만료되었습니다.");
             }
 
-            // Update session activity
-            sessionData.setLastActivity(System.currentTimeMillis());
+            // Update last activity
+            session.setLastActivity(now);
+            session.setExpiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC));
+            session = sessionRepository.save(session);
 
-            // Save updated session data
-            boolean updated = setJson(sessionKey, sessionData, SESSION_TTL_SEC);
-            if (!updated) {
-                return SessionValidationResult.invalid("UPDATE_FAILED", "세션 갱신에 실패했습니다.");
-            }
-
-            // Update expiration times for related keys
-            redisTemplate.expire(activeSessionKey, Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.expire(getUserSessionsKey(userId), Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.expire(getSessionIdKey(sessionId), Duration.ofSeconds(SESSION_TTL_SEC));
-
+            SessionData sessionData = toSessionData(session);
             return SessionValidationResult.valid(sessionData);
 
         } catch (Exception e) {
@@ -173,24 +111,16 @@ public class SessionService {
                 return;
             }
 
-            String sessionKey = getSessionKey(userId);
-            SessionData sessionData = getJson(sessionKey, SessionData.class);
-            if (sessionData == null) {
+            Session session = sessionRepository.findByUserId(userId).orElse(null);
+            if (session == null) {
                 log.debug("No session found to update last activity for user: {}", userId);
                 return;
             }
 
-            sessionData.setLastActivity(Instant.now().toEpochMilli());
-
-            boolean updated = setJson(sessionKey, sessionData, SESSION_TTL_SEC);
-            if (!updated) {
-                log.warn("Failed to persist session activity for user: {}", userId);
-                return;
-            }
-
-            redisTemplate.expire(getActiveSessionKey(userId), Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.expire(getUserSessionsKey(userId), Duration.ofSeconds(SESSION_TTL_SEC));
-            redisTemplate.expire(getSessionIdKey(sessionData.getSessionId()), Duration.ofSeconds(SESSION_TTL_SEC));
+            session.setLastActivity(Instant.now().toEpochMilli());
+            session.setExpiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC));
+            sessionRepository.save(session);
+            
         } catch (Exception e) {
             log.error("Failed to update session activity for user: {}", userId, e);
         }
@@ -198,19 +128,13 @@ public class SessionService {
 
     public void removeSession(String userId, String sessionId) {
         try {
-            String userSessionsKey = getUserSessionsKey(userId);
-            String activeSessionKey = getActiveSessionKey(userId);
-
             if (sessionId != null) {
-                String currentSessionId = redisTemplate.opsForValue().get(userSessionsKey);
-                if (sessionId.equals(currentSessionId)) {
-                    removeSessionKeys(userId, sessionId, userSessionsKey, activeSessionKey);
+                Session session = sessionRepository.findByUserId(userId).orElse(null);
+                if (session != null && sessionId.equals(session.getSessionId())) {
+                    sessionRepository.delete(session);
                 }
             } else {
-                String storedSessionId = redisTemplate.opsForValue().get(userSessionsKey);
-                if (storedSessionId != null) {
-                    removeSessionKeys(userId, storedSessionId, userSessionsKey, activeSessionKey);
-                }
+                sessionRepository.deleteByUserId(userId);
             }
         } catch (Exception e) {
             log.error("Session removal error for userId: {}, sessionId: {}", userId, sessionId, e);
@@ -224,17 +148,7 @@ public class SessionService {
 
     public void removeAllUserSessions(String userId) {
         try {
-            String activeSessionKey = getActiveSessionKey(userId);
-            String userSessionsKey = getUserSessionsKey(userId);
-            String sessionId = redisTemplate.opsForValue().get(userSessionsKey);
-
-            redisTemplate.delete(activeSessionKey);
-            redisTemplate.delete(userSessionsKey);
-
-            if (sessionId != null) {
-                redisTemplate.delete(getSessionKey(userId));
-                redisTemplate.delete(getSessionIdKey(sessionId));
-            }
+            sessionRepository.deleteByUserId(userId);
         } catch (Exception e) {
             log.error("Remove all sessions error for userId: {}", userId, e);
             throw new RuntimeException("모든 세션 삭제 중 오류가 발생했습니다.", e);
@@ -243,81 +157,16 @@ public class SessionService {
 
     public SessionData getActiveSession(String userId) {
         try {
-            String activeSessionKey = getActiveSessionKey(userId);
-            String sessionId = redisTemplate.opsForValue().get(activeSessionKey);
-
-            if (sessionId == null) {
+            Session session = sessionRepository.findByUserId(userId).orElse(null);
+            
+            if (session == null) {
                 return null;
             }
 
-            String sessionKey = getSessionKey(userId);
-            return getJson(sessionKey, SessionData.class);
+            return toSessionData(session);
         } catch (Exception e) {
             log.error("Get active session error for userId: {}", userId, e);
             return null;
-        }
-    }
-
-    private void removeSessionKeys(String userId, String sessionId, String userSessionsKey, String activeSessionKey) {
-        redisTemplate.delete(getSessionKey(userId));
-        redisTemplate.delete(getSessionIdKey(sessionId));
-        redisTemplate.delete(userSessionsKey);
-        redisTemplate.delete(activeSessionKey);
-    }
-
-    // Data classes
-    public static class SessionData {
-        private String userId;
-        private String sessionId;
-        private long createdAt;
-        private long lastActivity;
-        private SessionMetadata metadata;
-
-        // Constructor
-        public SessionData() {}
-
-        public static SessionDataBuilder builder() {
-            return new SessionDataBuilder();
-        }
-
-        // Getters and Setters
-        public String getUserId() { return userId; }
-        public void setUserId(String userId) { this.userId = userId; }
-
-        public String getSessionId() { return sessionId; }
-        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
-
-        public long getCreatedAt() { return createdAt; }
-        public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
-
-        public long getLastActivity() { return lastActivity; }
-        public void setLastActivity(long lastActivity) { this.lastActivity = lastActivity; }
-
-        public SessionMetadata getMetadata() { return metadata; }
-        public void setMetadata(SessionMetadata metadata) { this.metadata = metadata; }
-
-        public static class SessionDataBuilder {
-            private String userId;
-            private String sessionId;
-            private long createdAt;
-            private long lastActivity;
-            private SessionMetadata metadata;
-
-            public SessionDataBuilder userId(String userId) { this.userId = userId; return this; }
-            public SessionDataBuilder sessionId(String sessionId) { this.sessionId = sessionId; return this; }
-            public SessionDataBuilder createdAt(long createdAt) { this.createdAt = createdAt; return this; }
-            public SessionDataBuilder lastActivity(long lastActivity) { this.lastActivity = lastActivity; return this; }
-            public SessionDataBuilder metadata(SessionMetadata metadata) { this.metadata = metadata; return this; }
-
-            public SessionData build() {
-                SessionData data = new SessionData();
-                data.userId = this.userId;
-                data.sessionId = this.sessionId;
-                data.createdAt = this.createdAt;
-                data.lastActivity = this.lastActivity;
-                data.metadata = this.metadata;
-                return data;
-            }
         }
     }
     

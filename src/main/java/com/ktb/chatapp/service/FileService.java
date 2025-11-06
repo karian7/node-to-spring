@@ -190,7 +190,7 @@ public class FileService {
     }
 
     /**
-     * 파일 삭제 (보안 검증 포함, Node.js 스펙과 동일)
+     * 파일 삭제
      */
     public boolean deleteFile(String fileId, String requesterId) {
         try {

@@ -2,11 +2,10 @@ package com.ktb.chatapp.websocket.socketio;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Redis-based registry for tracking which room each user is currently in.
+ * Registry for tracking which room each user is currently in.
  * Maps userId -> roomId to maintain user room state across the application.
  */
 @Component
@@ -16,7 +15,7 @@ public class UserRooms {
 
     private static final String USER_ROOM_KEY_PREFIX = "userroom:roomid:";
 
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final ChatDataStore chatDataStore;
 
     /**
      * Get the current room ID for a user
@@ -25,7 +24,7 @@ public class UserRooms {
      * @return the room ID the user is currently in, or null if not in any room
      */
     public String get(String userId) {
-        return (String) redisTemplate.opsForValue().get(buildKey(userId));
+        return chatDataStore.get(buildKey(userId), String.class).orElse(null);
     }
 
     /**
@@ -35,7 +34,7 @@ public class UserRooms {
      * @param roomId the room ID to associate with the user
      */
     public void set(String userId, String roomId) {
-        redisTemplate.opsForValue().set(buildKey(userId), roomId);
+        chatDataStore.set(buildKey(userId), roomId);
     }
 
     /**
@@ -44,11 +43,10 @@ public class UserRooms {
      * @param userId the user ID
      */
     public void del(String userId) {
-        redisTemplate.delete(buildKey(userId));
+        chatDataStore.delete(buildKey(userId));
     }
 
     private String buildKey(String userId) {
         return USER_ROOM_KEY_PREFIX + userId;
     }
 }
-

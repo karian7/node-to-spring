@@ -1,61 +1,69 @@
 package com.ktb.chatapp.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktb.chatapp.annotation.RateLimit;
+import com.ktb.chatapp.dto.ApiErrorCode;
+import com.ktb.chatapp.dto.ApiResponse;
+import com.ktb.chatapp.service.RateLimitCheckResult;
+import com.ktb.chatapp.service.RateLimitService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.time.Duration;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-import java.time.Duration;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class RateLimitInterceptor implements HandlerInterceptor {
 
-    private final RateLimitConfig.RateLimitService rateLimitService;
+    private final RateLimitService rateLimitService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        if (!(handler instanceof HandlerMethod)) {
+        if (!(handler instanceof HandlerMethod handlerMethod)) {
             return true;
         }
 
-        HandlerMethod handlerMethod = (HandlerMethod) handler;
-
-        // 메서드 레벨 @RateLimit 어노테이션 확인
-        RateLimit methodRateLimit = handlerMethod.getMethodAnnotation(RateLimit.class);
-
-        // 클래스 레벨 @RateLimit 어노테이션 확인
-        RateLimit classRateLimit = handlerMethod.getBeanType().getAnnotation(RateLimit.class);
-
-        // 메서드 레벨이 우선, 없으면 클래스 레벨 사용
-        RateLimit rateLimit = methodRateLimit != null ? methodRateLimit : classRateLimit;
-
+        RateLimit rateLimit = resolveRateLimit(handlerMethod);
         if (rateLimit == null) {
-            return true; // Rate Limit 어노테이션이 없으면 통과
+            return true;
         }
 
-        // Rate Limit 설정 추출
         int maxRequests = rateLimit.maxRequests();
         Duration window = Duration.ofSeconds(rateLimit.windowSeconds());
-
-        // 사용자별 Rate Limit 적용을 위한 클라이언트 ID 생성
         String clientId = generateClientId(request, rateLimit.scope());
 
-        // Rate Limit 체크 (커스텀 클라이언트 ID 사용)
-        return checkRateLimitWithCustomId(request, response, clientId, maxRequests, window);
+        RateLimitCheckResult result = rateLimitService.checkRateLimit(clientId, maxRequests, window);
+        applyRateLimitHeaders(response, result);
+
+        if (result.allowed()) {
+            return true;
+        }
+
+        log.warn("Rate limit exceeded for client: {} on endpoint: {}", clientId, request.getRequestURI());
+        writeTooManyRequestsResponse(response, result, maxRequests, window);
+        return false;
     }
 
-    /**
-     * Rate Limit 범위에 따른 클라이언트 ID 생성
-     */
+    private RateLimit resolveRateLimit(HandlerMethod handlerMethod) {
+        RateLimit methodRateLimit = handlerMethod.getMethodAnnotation(RateLimit.class);
+        if (methodRateLimit != null) {
+            return methodRateLimit;
+        }
+        return handlerMethod.getBeanType().getAnnotation(RateLimit.class);
+    }
+
     private String generateClientId(HttpServletRequest request, RateLimit.LimitScope scope) {
         String clientIp = getClientIpAddress(request);
 
@@ -65,55 +73,51 @@ public class RateLimitInterceptor implements HandlerInterceptor {
                 if (auth != null && auth.isAuthenticated() && !auth.getName().equals("anonymousUser")) {
                     return "user:" + auth.getName();
                 }
-                // 인증되지 않은 사용자는 IP 기반으로 fallback
                 return "ip:" + clientIp;
-
             case IP_AND_USER:
                 Authentication userAuth = SecurityContextHolder.getContext().getAuthentication();
                 if (userAuth != null && userAuth.isAuthenticated() && !userAuth.getName().equals("anonymousUser")) {
                     return "ip_user:" + clientIp + ":" + userAuth.getName();
                 }
                 return "ip:" + clientIp;
-
             case IP:
             default:
                 return "ip:" + clientIp;
         }
     }
 
-    /**
-     * 커스텀 클라이언트 ID로 Rate Limit 체크
-     */
-    private boolean checkRateLimitWithCustomId(HttpServletRequest request, HttpServletResponse response,
-                                             String clientId, int maxRequests, Duration window) throws Exception {
-
-        String key = "rate_limit:" + clientId;
-
-        try {
-            // Redis를 사용한 Rate Limit 체크 로직을 직접 구현
-            return performRateLimitCheck(request, response, key, maxRequests, window);
-
-        } catch (Exception e) {
-            log.error("Rate limit check failed for client: {}", clientId, e);
-            // Rate Limit 체크 실패 시 요청 허용 (Fail Open)
-            return true;
+    private void applyRateLimitHeaders(HttpServletResponse response, RateLimitCheckResult result) {
+        response.setHeader("X-RateLimit-Limit", String.valueOf(result.limit()));
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(result.remaining()));
+        response.setHeader("X-RateLimit-Reset", String.valueOf(result.resetEpochSeconds()));
+        response.setHeader("X-RateLimit-Window", String.valueOf(result.windowSeconds()));
+        if (!result.allowed()) {
+            response.setHeader("Retry-After", String.valueOf(result.retryAfterSeconds()));
         }
     }
 
-    /**
-     * 실제 Rate Limit 체크 수행
-     */
-    private boolean performRateLimitCheck(HttpServletRequest request, HttpServletResponse response,
-                                        String key, int maxRequests, Duration window) throws Exception {
+    private void writeTooManyRequestsResponse(
+            HttpServletResponse response,
+            RateLimitCheckResult result,
+            int maxRequests,
+            Duration window) throws IOException {
+        
+        var errorCode = ApiErrorCode.TOO_MANY_REQUESTS;
+        response.setStatus(errorCode.getHttpStatus().value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
 
-        // RateLimitService의 기존 로직을 활용하되, 커스텀 키 사용
-        // 임시로 기본 체크 사용 (추후 개선 가능)
-        return rateLimitService.isAllowed(request, response, maxRequests, window);
+        ApiResponse<Object> errorResponse = ApiResponse.error(
+                errorCode.getMessage(),
+                Map.of(
+                        "code", errorCode.getCode(),
+                        "maxRequests", maxRequests,
+                        "windowMs", window.toMillis(),
+                        "retryAfter", result.retryAfterSeconds()));
+
+        objectMapper.writeValue(response.getWriter(), errorResponse);
     }
 
-    /**
-     * 클라이언트 IP 주소 추출
-     */
     private String getClientIpAddress(HttpServletRequest request) {
         String xForwardedFor = request.getHeader("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.isEmpty()) {

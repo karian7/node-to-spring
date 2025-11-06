@@ -43,7 +43,6 @@ public class ConnectionLoginHandler {
         try {
             var socketUser = connectedUsers.get(userId);
             if (socketUser != null) {
-                // 다중노드 지원안됨.
                 String existingSocketId = socketUser.socketId();
                 SocketIOClient existingClient = socketIOServer.getClient(UUID.fromString(existingSocketId));
                 if (existingClient != null) {

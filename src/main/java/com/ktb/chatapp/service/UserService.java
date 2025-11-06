@@ -124,7 +124,7 @@ public class UserService {
             throw new IllegalArgumentException("파일 크기는 5MB를 초과할 수 없습니다.");
         }
 
-        // Content-Type 검증 - Node.js처럼 image/* 전체 허용
+        // Content-Type 검증
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
             throw new IllegalArgumentException("이미지 파일만 업로드할 수 있습니다.");

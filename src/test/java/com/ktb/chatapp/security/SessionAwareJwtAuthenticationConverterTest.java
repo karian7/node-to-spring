@@ -1,6 +1,7 @@
 package com.ktb.chatapp.security;
 
 import com.ktb.chatapp.exception.SessionExpiredException;
+import com.ktb.chatapp.service.SessionData;
 import com.ktb.chatapp.service.SessionService;
 import com.ktb.chatapp.service.SessionValidationResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +46,7 @@ class SessionAwareJwtAuthenticationConverterTest {
     @DisplayName("유효한 JWT와 세션으로 인증 토큰 생성 성공")
     void convert_ValidJwtAndSession_Success() {
         // Given
-        SessionService.SessionData sessionData = createSessionData();
+        SessionData sessionData = createSessionData();
         SessionValidationResult validResult = SessionValidationResult.valid(sessionData);
         when(sessionService.validateSession(TEST_USER_ID, TEST_SESSION_ID))
             .thenReturn(validResult);
@@ -157,7 +158,7 @@ class SessionAwareJwtAuthenticationConverterTest {
     @DisplayName("유효한 JWT - Authorities가 올바르게 변환됨")
     void convert_ValidJwt_AuthoritiesConverted() {
         // Given
-        SessionService.SessionData sessionData = createSessionData();
+        SessionData sessionData = createSessionData();
         SessionValidationResult validResult = SessionValidationResult.valid(sessionData);
         when(sessionService.validateSession(TEST_USER_ID, TEST_SESSION_ID))
             .thenReturn(validResult);
@@ -177,8 +178,8 @@ class SessionAwareJwtAuthenticationConverterTest {
         Jwt jwt1 = createJwt("user1@test.com", "user-1", "session-1");
         Jwt jwt2 = createJwt("user2@test.com", "user-2", "session-2");
         
-        SessionService.SessionData sessionData1 = createSessionData("user-1", "session-1");
-        SessionService.SessionData sessionData2 = createSessionData("user-2", "session-2");
+        SessionData sessionData1 = createSessionData("user-1", "session-1");
+        SessionData sessionData2 = createSessionData("user-2", "session-2");
         
         when(sessionService.validateSession("user-1", "session-1"))
             .thenReturn(SessionValidationResult.valid(sessionData1));
@@ -202,7 +203,7 @@ class SessionAwareJwtAuthenticationConverterTest {
     void convert_NullSubject_HandlesGracefully() {
         // Given
         Jwt jwtWithNullSubject = createJwt(null, TEST_USER_ID, TEST_SESSION_ID);
-        SessionService.SessionData sessionData = createSessionData();
+        SessionData sessionData = createSessionData();
         SessionValidationResult validResult = SessionValidationResult.valid(sessionData);
         when(sessionService.validateSession(TEST_USER_ID, TEST_SESSION_ID))
             .thenReturn(validResult);
@@ -227,12 +228,12 @@ class SessionAwareJwtAuthenticationConverterTest {
     }
 
     // Helper methods
-    private SessionService.SessionData createSessionData() {
+    private SessionData createSessionData() {
         return createSessionData(TEST_USER_ID, TEST_SESSION_ID);
     }
     
-    private SessionService.SessionData createSessionData(String userId, String sessionId) {
-        return SessionService.SessionData.builder()
+    private SessionData createSessionData(String userId, String sessionId) {
+        return SessionData.builder()
             .userId(userId)
             .sessionId(sessionId)
             .createdAt(System.currentTimeMillis())

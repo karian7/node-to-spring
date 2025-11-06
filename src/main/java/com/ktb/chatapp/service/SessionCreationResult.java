@@ -1,6 +1,5 @@
 package com.ktb.chatapp.service;
 
-import com.ktb.chatapp.service.SessionService.SessionData;
 import lombok.*;
 
 @Builder

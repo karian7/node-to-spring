@@ -1,0 +1,75 @@
+x-backend-env: &backend-env
+  PORT: 5001
+  WS_PORT: 5002
+  SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:-mongodb://mongo:27017/bootcamp-chat}
+  SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+  SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+  JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+  PASSWORD_SALT: ${PASSWORD_SALT:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-openai-key}
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ktb-bootcampchat-backend:local
+    environment:
+      <<: *backend-env
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "5001"
+      - "5002"
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:6.0
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: bootcamp-chat
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "mongodb://localhost:27017/bootcamp-chat", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    build:
+      context: ./docker/nginx
+    image: ktb-bootcampchat-gateway:local
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "5001:5001"
+      - "5002:5002"
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  redis_data:
+  uploads:

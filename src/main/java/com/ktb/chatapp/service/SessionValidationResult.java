@@ -11,9 +11,9 @@ public class SessionValidationResult {
     private boolean isValid;
     private String error;
     private String message;
-    private SessionService.SessionData session;
+    private SessionData session;
     
-    public static SessionValidationResult valid(SessionService.SessionData session) {
+    public static SessionValidationResult valid(SessionData session) {
         SessionValidationResult result = new SessionValidationResult();
         result.isValid = true;
         result.session = session;

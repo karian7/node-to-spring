@@ -23,7 +23,6 @@ import java.util.Set;
 /**
  * Message 문서 모델 정의.
  * MongoDB 필드 이름과 인덱스를 명시한다.
- * Node.js Message 모델과 일치하도록 구현.
  */
 @Data
 @Builder
@@ -46,7 +45,6 @@ public class Message {
     @Field("room")
     private String roomId;
 
-    // Node.js 스펙: maxlength 10000
     @Size(max = 10000, message = "메시지는 10000자를 초과할 수 없습니다.")
     private String content;
 
@@ -64,7 +62,6 @@ public class Message {
     @Indexed
     private AiType aiType;
 
-    // Node.js 스펙: AI 멘션 저장 (현재 사용처 없지만 스펙 준수)
     @Builder.Default
     private List<String> mentions = new ArrayList<>();
 
@@ -83,7 +80,6 @@ public class Message {
     @Builder.Default
     private Map<String, Object> metadata = new HashMap<>();
 
-    // Node.js 스펙: soft delete 지원
     @Indexed
     @Builder.Default
     private Boolean isDeleted = false;

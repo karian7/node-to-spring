@@ -17,7 +17,7 @@
 
 ## 테스트 전략
 - JUnit 5와 Testcontainers를 사용합니다. 통합 테스트가 컨테이너를 기동하므로 Docker가 준비되어 있어야 합니다.
-- 서비스 레벨 테스트에서는 외부 시스템(예: OpenAI, Redis pub/sub)을 명시적으로 스텁하거나 모의 객체로 대체해 결정적 결과를 검증하세요.
+- 서비스 레벨 테스트에서는 외부 시스템(예: OpenAI, 외부 API)을 명시적으로 스텁하거나 모의 객체로 대체해 결정적 결과를 검증하세요.
 - MockMvc 혹은 WebTestClient를 사용해 HTTP 계약을 검증하며, 예상된 에러 응답(HTTP 상태·바디 구조)을 함께 확인합니다.
 - 테스트 네이밍은 `methodName_condition_expectedResult` 패턴을 권장하며, 실패 시 원인을 바로 파악할 수 있도록 assertion 메시지를 구체적으로 작성합니다.
 
@@ -29,4 +29,4 @@
 ## 보안 & 구성
 - 비밀 값은 `.env` 또는 환경 변수로만 관리합니다. 환경 변수 전체 목록과 기본값은 [README.md#환경-변수-설정](./README.md#환경-변수-설정)을 참고하세요.
 - `src/main/resources/application.properties`에는 안전한 기본값만 두고, 민감 정보는 `${ENV_VAR}` 형태로 주입합니다.
-- 릴리스 전에 OpenAI, MongoDB, Redis 등 외부 서비스 연결 정보가 확인되었는지 점검하고, 필요 시 `docs/`에 운영 체크리스트를 갱신합니다.
+- 릴리스 전에 OpenAI, MongoDB 등 외부 서비스 연결 정보가 확인되었는지 점검하고, 필요 시 `docs/`에 운영 체크리스트를 갱신합니다.

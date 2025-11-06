@@ -6,7 +6,7 @@
 
 Spring Boot 3.5와 Java 21 기반의 실시간 채팅 애플리케이션 백엔드입니다.
 - MongoDB를 통한 데이터 영속화
-- Redis 기반 세션 관리 및 레이트 리밋
+- MongoDB TTL 기반 세션 관리 및 레이트 리밋
 - JWT 인증 및 Spring Security
 - SocketIO를 통한 실시간 통신
 - OpenAI 연동 AI 채팅 기능
@@ -45,7 +45,7 @@ src/main/java/com/ktb/chatapp/
 ├── repository/     # MongoDB 데이터 접근 계층
 ├── dto/            # 요청/응답 데이터 전송 객체
 ├── model/          # 엔티티 클래스 (MongoDB 도큐먼트)
-├── config/         # 설정 클래스 (Async, Redis, WebSocket 등)
+├── config/         # 설정 클래스 (Async, RateLimit, WebSocket 등)
 ├── security/       # JWT 인증 및 인가
 ├── websocket/      # SocketIO 이벤트 핸들러
 ├── util/           # 유틸리티 클래스
@@ -59,7 +59,7 @@ src/main/java/com/ktb/chatapp/
 
 #### 인증 및 세션 관리
 - JWT 토큰 기반 인증 (`x-auth-token`, `x-session-id` 헤더)
-- Redis 세션 저장소 (IP, User-Agent, 디바이스 정보 포함)
+- MongoDB TTL 인덱스를 활용한 세션 저장소 (IP, User-Agent, 디바이스 정보 포함)
 - IP 기반 레이트 리밋 (분당 60 요청)
 - 커스텀 검증 어노테이션: `@ValidEmail`, `@ValidPassword`, `@ValidName`
 
@@ -93,7 +93,7 @@ src/main/java/com/ktb/chatapp/
 ### 주요 설정 파일
 - `src/main/resources/application.properties` - 메인 설정
 - `.env` - 환경 변수 (암호화 키, JWT 시크릿, OpenAI API 키 등)
-- `docker-compose.yml` - MongoDB 및 Redis 컨테이너 설정
+- `docker-compose.yml` - MongoDB 컨테이너 설정 (Redis 서비스는 현재 비활성화 상태로 유지)
 
 ## 개발 가이드라인
 
@@ -108,7 +108,7 @@ src/main/java/com/ktb/chatapp/
 1. **파일 업로드**: 반드시 `FileSecurityUtil` 사용하여 경로 검증
 2. **JWT 토큰**: 민감한 정보는 토큰에 포함하지 않음
 3. **레이트 리밋**: IP 기반 요청 제한 준수
-4. **세션 관리**: Redis 세션 만료 시간 적절히 설정
+4. **세션 관리**: MongoDB TTL 만료 시간을 주기적으로 검증
 
 ### WebSocket 이벤트 처리
 1. SocketIO 이벤트는 `websocket/` 패키지의 핸들러에서 처리
@@ -116,7 +116,7 @@ src/main/java/com/ktb/chatapp/
 3. 연결 상태 및 오류 처리 로직 필수 포함
 
 ### 테스트
-- Testcontainers를 사용한 통합 테스트 (MongoDB, Redis)
+- Testcontainers를 사용한 통합 테스트 (MongoDB)
 - JUnit 5 기반 단위 테스트
 - 테스트 실행에는 Docker 필요
 
@@ -126,8 +126,8 @@ src/main/java/com/ktb/chatapp/
 
 ### 추가 팁
 - SocketIO 연결 문제: `socketio.server.port` 설정 확인
-- MongoDB 연결 오류: Docker 컨테이너 상태 및 `MONGO_URI` 환경 변수 확인
-- Redis 캐시 문제: Redis 서버 가용성 및 `REDIS_HOST`/`REDIS_PORT` 확인
+- MongoDB 연결 오류: Docker 컨테이너 상태 및 `SPRING_DATA_MONGODB_URI` 환경 변수(`MONGO_URI` 호환) 확인
+- Redis 설정은: Redis 서버 가용성 및 `SPRING_DATA_REDIS_HOST`/`SPRING_DATA_REDIS_PORT` 환경 변수 확인
 - JWT 토큰 오류: `.env` 파일의 `JWT_SECRET` 설정 확인
 
 ## 참고 자료

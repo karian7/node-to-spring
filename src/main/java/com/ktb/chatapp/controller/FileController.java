@@ -132,15 +132,11 @@ public class FileController {
         }
     }
 
-    /**
-     * Node.js와 동일한 에러 처리
-     */
     private ResponseEntity<?> handleFileError(Exception e) {
         String errorMessage = e.getMessage();
         int statusCode = 500;
         String responseMessage = "파일 처리 중 오류가 발생했습니다.";
 
-        // Node.js errorResponses 매핑과 동일
         if (errorMessage != null) {
             if (errorMessage.contains("잘못된 파일명") || errorMessage.contains("Invalid filename")) {
                 statusCode = 400;
@@ -170,9 +166,6 @@ public class FileController {
         return ResponseEntity.status(statusCode).body(errorResponse);
     }
 
-    /**
-     * 파일 미리보기 (Node.js 스펙과 동일)
-     */
     @GetMapping("/view/{filename:.+}")
     public ResponseEntity<?> viewFile(
             @PathVariable String filename,
@@ -187,7 +180,6 @@ public class FileController {
             File fileEntity = fileRepository.findByFilename(filename)
                     .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
 
-            // Node.js isPreviewable() 검증
             if (!fileEntity.isPreviewable()) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("success", false);
@@ -231,9 +223,6 @@ public class FileController {
         }
     }
 
-    /**
-     * 안전한 파일 삭제 (Node.js 스펙과 동일)
-     */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteFile(@PathVariable String id, Principal principal) {
         try {
@@ -258,7 +247,6 @@ public class FileController {
             log.error("파일 삭제 중 에러 발생: {}", id, e);
             String errorMessage = e.getMessage();
             
-            // Node.js와 동일한 에러 처리
             if (errorMessage != null && errorMessage.contains("찾을 수 없습니다")) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("success", false);
