@@ -15,10 +15,6 @@ import org.springframework.stereotype.Repository;
 public interface MessageRepository extends MongoRepository<Message, String> {
     Page<Message> findByRoomIdAndIsDeletedAndTimestampBefore(String roomId, Boolean isDeleted, LocalDateTime timestamp, Pageable pageable);
 
-    // 배치 로딩을 위한 정렬된 조회 메서드 추가 (isDeleted 필터)
-    Page<Message> findByRoomIdAndIsDeletedOrderByTimestampDesc(String roomId, Boolean isDeleted, Pageable pageable);
-    Page<Message> findByRoomIdAndIsDeletedAndTimestampBeforeOrderByTimestampDesc(String roomId, Boolean isDeleted, LocalDateTime timestamp, Pageable pageable);
-
     // 읽음 상태 관리를 위한 쿼리 메서드들
 
     /**

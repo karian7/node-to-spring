@@ -24,14 +24,11 @@ public class MessageReadStatusService {
     private final MessageRepository messageRepository;
 
     /**
-     * 메시지 읽음 상태 비동기 업데이트
-     * MongoDB의 saveAll()은 각 도큐먼트를 개별적으로 업데이트하며,
-     * 단일 도큐먼트 작업은 원자적으로 수행됨
+     * 메시지 읽음 상태 업데이트
      *
      * @param messages 읽음 상태를 업데이트할 메시지 리스트
      * @param userId 읽은 사용자 ID
      */
-    @Async
     public void updateReadStatusAsync(List<Message> messages, String userId) {
         if (messages.isEmpty()) {
             return;
@@ -48,8 +45,8 @@ public class MessageReadStatusService {
                     .userId(userId)
                     .readAt(LocalDateTime.now())
                     .build();
-
-            messagesToUpdate.forEach(message -> {
+            
+            for (Message message : messagesToUpdate) {
                 if (message.getReaders() == null) {
                     message.setReaders(new ArrayList<>());
                 }
@@ -58,9 +55,8 @@ public class MessageReadStatusService {
                 if (!alreadyRead) {
                     message.getReaders().add(readerInfo);
                 }
-            });
-
-            messageRepository.saveAll(messagesToUpdate);
+                messageRepository.save(message);
+            }
             
             log.debug("Read status updated for {} messages by user {}",
                     messagesToUpdate.size(), userId);

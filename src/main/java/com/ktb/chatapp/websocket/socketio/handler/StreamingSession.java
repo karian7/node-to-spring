@@ -2,13 +2,10 @@ package com.ktb.chatapp.websocket.socketio.handler;
 
 import com.ktb.chatapp.model.AiType;
 import java.time.LocalDateTime;
-import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 @Data
@@ -26,9 +23,7 @@ public class StreamingSession {
     private long lastUpdate = System.currentTimeMillis();
     private long startTimeMillis = System.currentTimeMillis();
     @Builder.Default
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private StringBuilder contentBuilder = new StringBuilder();
+    private String content = "";
 
     public AiType aiTypeEnum() {
         if (aiType == null) return null;
@@ -44,22 +39,9 @@ public class StreamingSession {
         return aiTypeEnum;
     }
 
-    public String getContent() {
-        return contentBuilder.toString();
-    }
-
-    public void setContent(String content) {
-        contentBuilder.setLength(0);
-        if (content != null) {
-            contentBuilder.append(content);
-        }
-    }
-
     public void appendContent(String contentChunk) {
-        if (contentChunk != null) {
-            contentBuilder.append(contentChunk);
-            lastUpdate = System.currentTimeMillis();
-        }
+        content += contentChunk;
+        lastUpdate = System.currentTimeMillis();
     }
     
     public long generationTimeMillis() {

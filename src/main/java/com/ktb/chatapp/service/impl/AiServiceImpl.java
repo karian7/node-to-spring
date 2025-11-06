@@ -17,9 +17,6 @@ import reactor.core.publisher.Flux;
 @Service
 public class AiServiceImpl implements AiService {
 
-    private static final String MODEL = "gpt-4.1-mini";
-    private static final double TEMPERATURE = 0.7;
-
     private final ChatClient chatClient;
 
     public AiServiceImpl(

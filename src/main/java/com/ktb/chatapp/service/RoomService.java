@@ -240,7 +240,11 @@ public class RoomService {
             creator = userRepository.findById(room.getCreator()).orElse(null);
         }
 
-        List<User> participants = userRepository.findAllById(room.getParticipantIds());
+        List<User> participants = room.getParticipantIds().stream()
+            .map(userRepository::findById)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .toList();
 
         // LocalDateTime을 ISO_INSTANT 형식 문자열로 변환
         String createdAtStr = null;

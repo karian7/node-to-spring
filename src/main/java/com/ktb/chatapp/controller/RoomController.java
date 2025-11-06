@@ -64,7 +64,7 @@ public class RoomController {
 
     // 페이지네이션이 적용된 채팅방 목록 조회
     @GetMapping
-    @RateLimit(maxRequests = 60)
+    @RateLimit
     public ResponseEntity<?> getAllRooms(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int pageSize,

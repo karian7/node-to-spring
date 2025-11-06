@@ -1,6 +1,7 @@
 package com.ktb.chatapp.config;
 
 import com.corundumstudio.socketio.AuthTokenListener;
+import com.corundumstudio.socketio.SocketConfig;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.SpringAnnotationScanner;
 import com.corundumstudio.socketio.namespace.Namespace;
@@ -31,25 +32,25 @@ public class SocketIOConfig {
     @Value("${socketio.server.port:5002}")
     private Integer port;
 
+    @Value("${socketio.server.allowed-origins}")
+    private String[] allowedOrigins;
+
     @Bean(initMethod = "start", destroyMethod = "stop")
     public SocketIOServer socketIOServer(AuthTokenListener authTokenListener) {
         com.corundumstudio.socketio.Configuration config = new com.corundumstudio.socketio.Configuration();
         config.setHostname(host);
         config.setPort(port);
+        
+        var socketConfig = new SocketConfig();
+        socketConfig.setReuseAddress(true);
+        socketConfig.setTcpNoDelay(false);
+        socketConfig.setAcceptBackLog(10);
+        socketConfig.setTcpSendBufferSize(4096);
+        socketConfig.setTcpReceiveBufferSize(4096);
+        config.setSocketConfig(socketConfig);
 
-        String allowedOrigins = String.join(",",
-                "https://bootcampchat-fe.run.goorm.site",
-                "https://bootcampchat-hgxbv.dev-k8s.arkain.io",
-                "http://localhost:3000",
-                "http://localhost:3001",
-                "http://localhost:3002",
-                "https://localhost:3000",
-                "https://localhost:3001",
-                "https://localhost:3002",
-                "http://0.0.0.0:3000",
-                "https://0.0.0.0:3000"
-        );
-        config.setOrigin(allowedOrigins);
+        String joinedAllowedOrigins = String.join(",", allowedOrigins);
+        config.setOrigin(joinedAllowedOrigins);
 
         // Socket.IO settings
         config.setPingTimeout(60000);
@@ -59,7 +60,7 @@ public class SocketIOConfig {
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
         config.setStoreFactory(new MemoryStoreFactory()); // 단일노드 전용
 
-        log.info("Socket.IO server configured on {}:{} with CORS origins: {}", host, port, allowedOrigins);
+        log.info("Socket.IO server configured on {}:{} with CORS origins: {}", host, port, joinedAllowedOrigins);
         var socketIOServer = new SocketIOServer(config);
         socketIOServer.getNamespace(Namespace.DEFAULT_NAME).addAuthTokenListener(authTokenListener);
         

@@ -13,6 +13,7 @@ import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -87,8 +88,18 @@ public class RoomLeaveHandler {
                             "userName", userName
                     ));
             
-            // 빈 방 정리
-            taskScheduler.schedule(() -> {
+            cleanupEmptyRoom(roomId);
+            
+        } catch (Exception e) {
+            log.error("Error handling leaveRoom", e);
+            client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
+        }
+    }
+    
+    private void cleanupEmptyRoom(String roomId) {
+        new Thread(() -> {
+            try {
+                Thread.sleep(Duration.ofSeconds(10));
                 roomRepository.findById(roomId)
                         .filter(Room::isEmpty)
                         .ifPresent(r -> {
@@ -98,14 +109,13 @@ public class RoomLeaveHandler {
                             socketIOServer.getRoomOperations("room-list")
                                     .sendEvent(ROOM_DELETED, r.getId());
                         });
-            }, taskScheduler.getClock().instant().plusSeconds(10));
-            
-        } catch (Exception e) {
-            log.error("Error handling leaveRoom", e);
-            client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
-        }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Room cleanup thread interrupted", e);
+            }
+        }).start();
     }
-
+    
     private void sendSystemMessage(String roomId, String content) {
         try {
             Message systemMessage = new Message();

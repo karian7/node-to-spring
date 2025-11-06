@@ -30,8 +30,6 @@ import java.util.Set;
 @AllArgsConstructor
 @Document(collection = "messages")
 @CompoundIndexes({
-    @CompoundIndex(name = "room_timestamp_idx", def = "{'room': 1, 'timestamp': -1}"),
-    @CompoundIndex(name = "room_isDeleted_idx", def = "{'room': 1, 'isDeleted': 1}"),
     @CompoundIndex(name = "readers_userId_idx", def = "{'readers.userId': 1}"),
     @CompoundIndex(name = "reactions_userId_idx", def = "{'reactions': 1}")
 })

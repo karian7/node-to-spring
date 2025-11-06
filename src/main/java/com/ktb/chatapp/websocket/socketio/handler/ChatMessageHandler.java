@@ -23,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-import reactor.core.scheduler.Schedulers;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
 
@@ -210,7 +209,6 @@ public class ChatMessageHandler {
         return message;
     }
 
-    // JavaScript 버전과 동일한 AI 멘션 추출
     private List<String> extractAIMentions(String content) {
         if (content == null || content.isBlank()) {
             return Collections.emptyList();
@@ -227,7 +225,6 @@ public class ChatMessageHandler {
         return new ArrayList<>(mentions);
     }
 
-    // JavaScript 버전과 동일한 구조의 응답 생성
     private MessageResponse createMessageResponse(Message message, User sender) {
         var messageResponse = new MessageResponse();
         messageResponse.setId(message.getId());
@@ -274,7 +271,6 @@ public class ChatMessageHandler {
                 ));
         
         aiService.streamResponse(session)
-                .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(new AiStreamHandler(session, socketIOServer, messageRepository));
     }
 }

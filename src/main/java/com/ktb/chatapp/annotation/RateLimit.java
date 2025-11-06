@@ -12,7 +12,7 @@ public @interface RateLimit {
     /**
      * 허용되는 최대 요청 수
      */
-    int maxRequests() default 60;
+    int maxRequests() default 10000;
 
     /**
      * 시간 윈도우 (초 단위)
