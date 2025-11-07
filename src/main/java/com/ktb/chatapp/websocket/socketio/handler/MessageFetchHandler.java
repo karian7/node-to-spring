@@ -67,14 +67,14 @@ public class MessageFetchHandler {
             messageQueues.put(queueKey, true);
             client.sendEvent(MESSAGE_LOAD_START);
 
-            log.debug("Starting message load for user {} in room {}, limit: {}",
-                    userId, data.roomId(), data.limit());
+            log.debug("Starting message load for user {} in room {}, limit: {}, before: {}",
+                    userId, data.roomId(), data.limit(), data.before());
 
             // RetryTemplate을 사용한 동기 방식 메시지 로드
             FetchMessagesResponse result = retryTemplate.execute(context -> {
                 log.debug("Loading messages for room {} (attempt {})",
                         data.roomId(), context.getRetryCount() + 1);
-                return messageLoader.loadMessages(data.roomId(), data.limit(), userId);
+                return messageLoader.loadMessages(data, userId);
             });
             
             log.debug("Previous messages loaded - room: {}, count: {}, hasMore: {}, oldestTimestamp: {}",

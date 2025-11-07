@@ -6,7 +6,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
@@ -14,7 +13,7 @@ import java.util.regex.Pattern;
 
 @Slf4j
 @Component
-public class FileSecurityUtil {
+public class FileUtil {
 
     private static final Map<String, List<String>> ALLOWED_TYPES = Map.ofEntries(
         Map.entry("image/jpeg", Arrays.asList("jpg", "jpeg")),

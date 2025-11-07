@@ -1,7 +1,6 @@
 package com.ktb.chatapp.websocket.socketio.handler;
 
 import com.ktb.chatapp.model.AiType;
-import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,9 +18,9 @@ public class StreamingSession {
     private String userId;
     private String aiType;
     private String query;
-    private LocalDateTime timestamp;
+    private long timestamp;
+    @Builder.Default
     private long lastUpdate = System.currentTimeMillis();
-    private long startTimeMillis = System.currentTimeMillis();
     @Builder.Default
     private String content = "";
 
@@ -45,6 +44,6 @@ public class StreamingSession {
     }
     
     public long generationTimeMillis() {
-        return System.currentTimeMillis() - startTimeMillis;
+        return System.currentTimeMillis() - timestamp;
     }
 }

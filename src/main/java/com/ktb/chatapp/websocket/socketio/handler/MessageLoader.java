@@ -1,5 +1,6 @@
 package com.ktb.chatapp.websocket.socketio.handler;
 
+import com.ktb.chatapp.dto.FetchMessagesRequest;
 import com.ktb.chatapp.dto.FetchMessagesResponse;
 import com.ktb.chatapp.dto.MessageResponse;
 import com.ktb.chatapp.model.Message;
@@ -7,11 +8,11 @@ import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.MessageReadStatusService;
+import jakarta.annotation.Nullable;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,19 +37,11 @@ public class MessageLoader {
     /**
      * 메시지 로드 (RetryTemplate에서 호출)
      */
-    public FetchMessagesResponse loadMessages(String roomId, Integer limit, String userId) {
-        int batchSize = limit != null && limit > 0 ? limit : BATCH_SIZE;
-        return loadMessagesInternal(roomId, batchSize, userId);
-    }
-
-    /**
-     * 초기 메시지 로드 (방 입장 시) - 동기
-     */
-    public FetchMessagesResponse loadInitialMessages(String roomId, String userId) {
+    public FetchMessagesResponse loadMessages(FetchMessagesRequest data, String userId) {
         try {
-            return loadMessagesInternal(roomId, BATCH_SIZE, userId);
+            return loadMessagesInternal(data.roomId(), data.limit(BATCH_SIZE), data.before(LocalDateTime.now()), userId);
         } catch (Exception e) {
-            log.error("Error loading initial messages for room {}", roomId, e);
+            log.error("Error loading initial messages for room {}", data.roomId(), e);
             return FetchMessagesResponse.builder()
                     .messages(new ArrayList<>())
                     .hasMore(false)
@@ -59,30 +52,25 @@ public class MessageLoader {
 
     private FetchMessagesResponse loadMessagesInternal(
             String roomId,
-            int batchSize,
+            int limit,
+            LocalDateTime before,
             String userId) {
-        
-        Pageable pageable = PageRequest.of(0, batchSize, Sort.by("timestamp").descending());
-        LocalDateTime beforeTime = LocalDateTime.now();
+        Pageable pageable = PageRequest.of(0, limit, Sort.by("timestamp").descending());
 
         Page<Message> messagePage = messageRepository
-                .findByRoomIdAndIsDeletedAndTimestampBefore(roomId, false, beforeTime, pageable);
+                .findByRoomIdAndIsDeletedAndTimestampBefore(roomId, false, before, pageable);
 
         List<Message> messages = messagePage.getContent();
 
         // DESC로 조회했으므로 ASC로 재정렬 (채팅 UI 표시 순서)
         List<Message> sortedMessages = messages.reversed();
         
-        messageReadStatusService.updateReadStatusAsync(sortedMessages, userId);
-        
-        Function<String, User> userFunction = id -> userRepository.findById(id)
-                .orElse(null);
+        messageReadStatusService.updateReadStatus(sortedMessages, userId);
         
         // 메시지 응답 생성
         List<MessageResponse> messageResponses = sortedMessages.stream()
-                .filter(message -> message.getSenderId() != null)
                 .map(message -> {
-                    var user = userFunction.apply(message.getSenderId());
+                    var user = findUserById(message.getSenderId());
                     return messageResponseMapper.mapToMessageResponse(message, user);
                 })
                 .collect(Collectors.toList());
@@ -90,7 +78,7 @@ public class MessageLoader {
         boolean hasMore = messagePage.hasNext();
 
         log.debug("Messages loaded - roomId: {}, limit: {}, count: {}, hasMore: {}",
-                roomId, batchSize, messageResponses.size(), hasMore);
+                roomId, limit, messageResponses.size(), hasMore);
 
         return FetchMessagesResponse.builder()
                 .messages(messageResponses)
@@ -116,5 +104,17 @@ public class MessageLoader {
                 .atZone(ZoneId.systemDefault())
                 .toInstant()
                 .toString();
+    }
+    
+    /**
+     * AI 경우 null 반환 가능
+     */
+    @Nullable
+    private User findUserById(String id) {
+        if (id == null) {
+            return null;
+        }
+        return userRepository.findById(id)
+                .orElse(null);
     }
 }

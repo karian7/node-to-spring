@@ -3,13 +3,13 @@ package com.ktb.chatapp.websocket.socketio.handler;
 import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
+import com.ktb.chatapp.dto.FetchMessagesRequest;
 import com.ktb.chatapp.dto.FetchMessagesResponse;
 import com.ktb.chatapp.dto.JoinRoomSuccessResponse;
 import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.model.MessageType;
 import com.ktb.chatapp.model.Room;
-import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
@@ -17,7 +17,6 @@ import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -54,41 +53,31 @@ public class RoomJoinHandler {
                 client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "Unauthorized"));
                 return;
             }
-
+            
+            if (userRepository.findById(userId).isEmpty()) {
+                client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "User not found"));
+                return;
+            }
+            
+            if (roomRepository.findById(roomId).isEmpty()) {
+                client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
+                return;
+            }
+            
             // 이미 해당 방에 참여 중인지 확인
-            String currentRoom = userRooms.get(userId);
-            if (roomId.equals(currentRoom)) {
+            if (userRooms.isInRoom(userId, roomId)) {
                 log.debug("User {} already in room {}", userId, roomId);
                 client.joinRoom(roomId);
                 client.sendEvent(JOIN_ROOM_SUCCESS, Map.of("roomId", roomId));
                 return;
             }
 
-            // 기존 방에서 나가기
-            if (currentRoom != null) {
-                log.debug("User {} leaving current room {}", userId, currentRoom);
-                roomLeaveHandler.handleLeaveRoom(client, currentRoom);
-            }
-
-            User user = userRepository.findById(userId).orElse(null);
-            if (user == null) {
-                client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "User not found"));
-                return;
-            }
-
-            // 채팅방 참가 with profileImage
-            Room room = roomRepository.findById(roomId).orElse(null);
-            if (room == null) {
-                client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
-                return;
-            }
-
             // MongoDB의 $addToSet 연산자를 사용한 원자적 업데이트
             roomRepository.addParticipant(roomId, userId);
 
-            // Join socket room
+            // Join socket room and add to user's room set
             client.joinRoom(roomId);
-            userRooms.set(userId, roomId);
+            userRooms.add(userId, roomId);
 
             Message joinMessage = Message.builder()
                 .roomId(roomId)
@@ -105,21 +94,25 @@ public class RoomJoinHandler {
             joinMessage = messageRepository.save(joinMessage);
 
             // 초기 메시지 로드
-            FetchMessagesResponse messageLoadResult = messageLoader.loadInitialMessages(roomId, userId);
+            FetchMessagesRequest req = new FetchMessagesRequest(roomId, 30, null);
+            FetchMessagesResponse messageLoadResult = messageLoader.loadMessages(req, userId);
 
             // 업데이트된 room 다시 조회하여 최신 participantIds 가져오기
-            room = roomRepository.findById(roomId).orElse(null);
-            if (room == null) {
+            Optional<Room> roomOpt = roomRepository.findById(roomId);
+            if (roomOpt.isEmpty()) {
                 client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
                 return;
             }
 
-            // 참가자 정보 조회 (with profileImage)
-            List<User> participantUsers = userRepository.findAllById(room.getParticipantIds());
-            List<UserResponse> participants = participantUsers.stream()
-                .map(UserResponse::from)
-                .collect(Collectors.toList());
-
+            // 참가자 정보 조회
+            List<UserResponse> participants = roomOpt.get().getParticipantIds()
+                    .stream()
+                    .map(userRepository::findById)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .map(UserResponse::from)
+                    .toList();
+            
             JoinRoomSuccessResponse response = JoinRoomSuccessResponse.builder()
                 .roomId(roomId)
                 .participants(participants)

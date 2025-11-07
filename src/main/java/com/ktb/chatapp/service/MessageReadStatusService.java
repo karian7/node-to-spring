@@ -4,7 +4,6 @@ import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -29,7 +28,7 @@ public class MessageReadStatusService {
      * @param messages 읽음 상태를 업데이트할 메시지 리스트
      * @param userId 읽은 사용자 ID
      */
-    public void updateReadStatusAsync(List<Message> messages, String userId) {
+    public void updateReadStatus(List<Message> messages, String userId) {
         if (messages.isEmpty()) {
             return;
         }

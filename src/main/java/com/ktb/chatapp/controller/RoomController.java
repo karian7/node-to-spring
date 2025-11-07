@@ -7,6 +7,12 @@ import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.RoomService;
 import jakarta.validation.Valid;
+import java.security.Principal;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,13 +20,6 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.security.Principal;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -83,7 +82,7 @@ public class RoomController {
             pageRequest.setSearch(search);
 
             // 서비스에서 페이지네이션 처리
-            PagedResponse<RoomResponse> response = roomService.getAllRoomsWithPagination(pageRequest, principal);
+            PagedResponse<RoomResponse> response = roomService.getAllRoomsWithPagination(pageRequest, principal.getName());
 
             // 캐시 설정
             return ResponseEntity.ok()
@@ -122,8 +121,8 @@ public class RoomController {
                 );
             }
 
-            Room savedRoom = roomService.createRoom(createRoomRequest, principal);
-            RoomResponse roomResponse = mapToRoomResponse(savedRoom, principal);
+            Room savedRoom = roomService.createRoom(createRoomRequest, principal.getName());
+            RoomResponse roomResponse = mapToRoomResponse(savedRoom, principal.getName());
 
             return ResponseEntity.status(201).body(
                 Map.of(
@@ -157,7 +156,7 @@ public class RoomController {
             }
 
             Room room = roomOpt.get();
-            RoomResponse roomResponse = mapToRoomResponse(room, principal);
+            RoomResponse roomResponse = mapToRoomResponse(room, principal.getName());
 
             return ResponseEntity.ok(
                 Map.of(
@@ -177,14 +176,14 @@ public class RoomController {
     @PostMapping("/{roomId}/join")
     public ResponseEntity<?> joinRoom(@PathVariable String roomId, @RequestBody JoinRoomRequest joinRoomRequest, Principal principal) {
         try {
-            Room joinedRoom = roomService.joinRoom(roomId, joinRoomRequest.getPassword(), principal);
+            Room joinedRoom = roomService.joinRoom(roomId, joinRoomRequest.getPassword(), principal.getName());
 
             if (joinedRoom == null) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error("채팅방을 찾을 수 없습니다."));
             }
 
-            RoomResponse roomResponse = mapToRoomResponse(joinedRoom, principal);
+            RoomResponse roomResponse = mapToRoomResponse(joinedRoom, principal.getName());
             
             return ResponseEntity.ok(
                 Map.of(
@@ -209,28 +208,25 @@ public class RoomController {
         }
     }
 
-    private RoomResponse mapToRoomResponse(Room room, Principal principal) {
+    private RoomResponse mapToRoomResponse(Room room, String name) {
         User creator = userRepository.findById(room.getCreator()).orElse(null);
         if (creator == null) {
             throw new RuntimeException("Creator not found for room " + room.getId());
         }
         UserResponse creatorSummary = UserResponse.from(creator);
-
-        List<User> participants = userRepository.findAllById(room.getParticipantIds());
-        List<UserResponse> participantSummaries = participants.stream()
+        List<UserResponse> participantSummaries = room.getParticipantIds()
+                .stream()
+                .map(userRepository::findById).peek(optUser -> {
+                    if (optUser.isEmpty()) {
+                        log.warn("Participant not found: roomId={}, userId={}", room.getId(), optUser);
+                    }
+                })
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .map(UserResponse::from)
-                .collect(Collectors.toList());
+                .toList();
 
-        boolean isCreator = principal != null && room.getCreator().equals(principal.getName());
-
-        // LocalDateTime을 ISO_INSTANT 형식 문자열로 변환
-        String createdAtStr = null;
-        if (room.getCreatedAt() != null) {
-            java.time.Instant instant = room.getCreatedAt()
-                .atZone(java.time.ZoneId.systemDefault())
-                .toInstant();
-            createdAtStr = instant.toString();
-        }
+        boolean isCreator = room.getCreator().equals(name);
 
         return new RoomResponse(
                 room.getId(),
@@ -238,8 +234,7 @@ public class RoomController {
                 room.isHasPassword(),
                 creatorSummary,
                 participantSummaries,
-                participantSummaries.size(),
-                createdAtStr != null ? createdAtStr : java.time.Instant.now().toString(),
+                room.getCreatedAt() != null ? room.getCreatedAt() : LocalDateTime.now(),
                 isCreator
         );
     }

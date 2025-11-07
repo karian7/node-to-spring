@@ -6,7 +6,7 @@ x-backend-env: &backend-env
   SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
   JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
-  PASSWORD_SALT: ${PASSWORD_SALT:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}
+  ENCRYPTION_SALT: ${ENCRYPTION_SALT:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-openai-key}
 
 services:

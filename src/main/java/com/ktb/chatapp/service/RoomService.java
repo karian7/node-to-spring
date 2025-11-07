@@ -7,9 +7,7 @@ import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
-import java.security.Principal;
-import java.time.Instant;
-import java.time.ZoneId;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,8 +33,7 @@ public class RoomService {
     private final ApplicationEventPublisher eventPublisher;
 
     public PagedResponse<RoomResponse> getAllRoomsWithPagination(
-            com.ktb.chatapp.dto.PageRequest pageRequest,
-            Principal principal) {
+            com.ktb.chatapp.dto.PageRequest pageRequest, String name) {
 
         try {
             // 정렬 설정 검증
@@ -76,7 +73,7 @@ public class RoomService {
 
             // Room을 RoomResponse로 변환
             List<RoomResponse> roomResponses = roomPage.getContent().stream()
-                .map(room -> mapToRoomResponse(room, principal))
+                .map(room -> mapToRoomResponse(room, name))
                 .collect(Collectors.toList());
 
             // 메타데이터 생성
@@ -128,19 +125,9 @@ public class RoomService {
             }
 
             // 최근 활동 조회
-            String lastActivity = null;
-            try {
-                Optional<Room> recentRoom = roomRepository.findMostRecentRoom();
-                if (recentRoom.isPresent() && recentRoom.get().getCreatedAt() != null) {
-                    // LocalDateTime을 ISO_INSTANT 형식으로 변환
-                    Instant instant = recentRoom.get().getCreatedAt()
-                        .atZone(ZoneId.systemDefault())
-                        .toInstant();
-                    lastActivity = instant.toString();
-                }
-            } catch (Exception e) {
-                log.warn("최근 활동 조회 실패", e);
-            }
+            LocalDateTime lastActivity = roomRepository.findMostRecentRoom()
+                    .map(Room::getCreatedAt)
+                    .orElse(null);
 
             // 서비스 상태 정보 구성
             Map<String, HealthResponse.ServiceHealth> services = new HashMap<>();
@@ -151,7 +138,6 @@ public class RoomService {
 
             return HealthResponse.builder()
                 .success(true)
-                .timestamp(Instant.now().toString())  // ISO_INSTANT 형식
                 .services(services)
                 .lastActivity(lastActivity)
                 .build();
@@ -160,15 +146,14 @@ public class RoomService {
             log.error("Health check 실행 중 에러 발생", e);
             return HealthResponse.builder()
                 .success(false)
-                .timestamp(Instant.now().toString())  // ISO_INSTANT 형식
                 .services(new HashMap<>())
                 .build();
         }
     }
 
-    public Room createRoom(CreateRoomRequest createRoomRequest, Principal principal) {
-        User creator = userRepository.findByEmail(principal.getName())
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + principal.getName()));
+    public Room createRoom(CreateRoomRequest createRoomRequest, String name) {
+        User creator = userRepository.findByEmail(name)
+            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 
         Room room = new Room();
         room.setName(createRoomRequest.getName().trim());
@@ -184,7 +169,7 @@ public class RoomService {
         
         // Publish event for room created
         try {
-            RoomResponse roomResponse = mapToRoomResponse(savedRoom, principal);
+            RoomResponse roomResponse = mapToRoomResponse(savedRoom, name);
             eventPublisher.publishEvent(new RoomCreatedEvent(this, roomResponse));
         } catch (Exception e) {
             log.error("roomCreated 이벤트 발행 실패", e);
@@ -197,15 +182,15 @@ public class RoomService {
         return roomRepository.findById(roomId);
     }
 
-    public Room joinRoom(String roomId, String password, Principal principal) {
+    public Room joinRoom(String roomId, String password, String name) {
         Optional<Room> roomOpt = roomRepository.findById(roomId);
         if (roomOpt.isEmpty()) {
             return null;
         }
 
         Room room = roomOpt.get();
-        User user = userRepository.findByEmail(principal.getName())
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + principal.getName()));
+        User user = userRepository.findByEmail(name)
+            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 
         // 비밀번호 확인
         if (room.isHasPassword()) {
@@ -223,7 +208,7 @@ public class RoomService {
         
         // Publish event for room updated
         try {
-            RoomResponse roomResponse = mapToRoomResponse(room, principal);
+            RoomResponse roomResponse = mapToRoomResponse(room, name);
             eventPublisher.publishEvent(new RoomUpdatedEvent(this, roomId, roomResponse));
         } catch (Exception e) {
             log.error("roomUpdate 이벤트 발행 실패", e);
@@ -232,7 +217,7 @@ public class RoomService {
         return room;
     }
 
-    private RoomResponse mapToRoomResponse(Room room, Principal principal) {
+    private RoomResponse mapToRoomResponse(Room room, String name) {
         if (room == null) return null;
 
         User creator = null;
@@ -245,15 +230,6 @@ public class RoomService {
             .filter(Optional::isPresent)
             .map(Optional::get)
             .toList();
-
-        // LocalDateTime을 ISO_INSTANT 형식 문자열로 변환
-        String createdAtStr = null;
-        if (room.getCreatedAt() != null) {
-            Instant instant = room.getCreatedAt()
-                .atZone(ZoneId.systemDefault())
-                .toInstant();
-            createdAtStr = instant.toString();
-        }
 
         return RoomResponse.builder()
             .id(room.getId())
@@ -272,10 +248,8 @@ public class RoomService {
                     .email(p.getEmail() != null ? p.getEmail() : "")
                     .build())
                 .collect(Collectors.toList()))
-            .participantsCount(participants.size())
-            .createdAt(createdAtStr != null ? createdAtStr : Instant.now().toString())
-            .isCreator(creator != null && principal != null &&
-                creator.getId().equals(principal.getName()))
+            .createdAtDateTime(room.getCreatedAt())
+            .isCreator(creator != null && creator.getId().equals(name))
             .build();
     }
 }

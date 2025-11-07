@@ -1,5 +1,6 @@
 package com.ktb.chatapp.websocket.socketio.handler;
 
+import com.ktb.chatapp.dto.FetchMessagesRequest;
 import com.ktb.chatapp.dto.FetchMessagesResponse;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.model.User;
@@ -80,7 +81,7 @@ class MessageLoaderTest {
         
         lenient().when(userRepository.findAllById(anySet()))
                 .thenReturn(List.of(testUser));
-        lenient().doNothing().when(messageReadStatusService).updateReadStatusAsync(anyList(), anyString());
+        lenient().doNothing().when(messageReadStatusService).updateReadStatus(anyList(), anyString());
     }
     
     private Message createMessage(String id, LocalDateTime timestamp) {
@@ -109,7 +110,8 @@ class MessageLoaderTest {
                 .thenReturn(messagePage);
         
         // When: 메시지 로드
-        FetchMessagesResponse result = messageLoader.loadMessages(roomId, 30, userId);
+        FetchMessagesRequest req = new FetchMessagesRequest(roomId, 30, null);
+        FetchMessagesResponse result = messageLoader.loadMessages(req, userId);
         
         // Then: 결과는 오름차순으로 정렬되어야 함
         assertThat(result.getMessages()).hasSize(30);
@@ -143,7 +145,8 @@ class MessageLoaderTest {
                 .thenReturn(messagePage);
         
         // When: 초기 메시지 로드
-        FetchMessagesResponse result = messageLoader.loadInitialMessages(roomId, userId);
+        FetchMessagesRequest req = new FetchMessagesRequest(roomId, 30, null);
+        FetchMessagesResponse result = messageLoader.loadMessages(req, userId);
         
         // Then: 결과는 오름차순으로 정렬되어야 함
         assertThat(result.getMessages()).hasSize(30);
@@ -168,7 +171,8 @@ class MessageLoaderTest {
                 any(), anyBoolean(), any(LocalDateTime.class), any(Pageable.class)))
                 .thenThrow(new RuntimeException("DB error"));
         
-        FetchMessagesResponse result = messageLoader.loadInitialMessages(roomId, userId);
+        FetchMessagesRequest req = new FetchMessagesRequest(roomId, 30, null);
+        FetchMessagesResponse result = messageLoader.loadMessages(req, userId);
         
         assertThat(result.getMessages()).isEmpty();
         assertThat(result.isHasMore()).isFalse();

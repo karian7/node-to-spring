@@ -22,13 +22,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(rateLimitInterceptor)
-                .addPathPatterns("/api/**") // API 경로에만 Rate Limiting 적용
-                .excludePathPatterns(
-                    "/api/auth/login",  // 로그인은 별도 처리
-                    "/api/auth/register", // 회원가입은 별도 처리
-                    "/api/health"       // Health Check는 제외
-                );
+        registry.addInterceptor(rateLimitInterceptor); // 변경금지
     }
 
     @Override

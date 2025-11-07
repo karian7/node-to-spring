@@ -27,11 +27,6 @@ public @interface RateLimit {
      */
     LimitScope scope() default LimitScope.IP;
 
-    /**
-     * Rate Limit 초과 시 에러 메시지
-     */
-    String message() default "너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.";
-
     enum LimitScope {
         IP,
         USER,

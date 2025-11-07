@@ -4,46 +4,83 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
- * Registry for tracking which room each user is currently in.
- * Maps userId -> roomId to maintain user room state across the application.
+ * Registry for tracking which rooms each user is currently in.
+ * Maps userId -> Set<roomId> to maintain user room state across the application.
+ * Users can now participate in multiple rooms simultaneously.
  */
 @Component
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class UserRooms {
 
-    private static final String USER_ROOM_KEY_PREFIX = "userroom:roomid:";
+    private static final String USER_ROOM_KEY_PREFIX = "userroom:roomids:";
 
     private final ChatDataStore chatDataStore;
 
     /**
-     * Get the current room ID for a user
+     * Get all room IDs for a user
      *
      * @param userId the user ID
-     * @return the room ID the user is currently in, or null if not in any room
+     * @return the set of room IDs the user is currently in, or empty set if not in any room
      */
-    public String get(String userId) {
-        return chatDataStore.get(buildKey(userId), String.class).orElse(null);
+    @SuppressWarnings("unchecked")
+    public Set<String> get(String userId) {
+        return chatDataStore.get(buildKey(userId), Set.class)
+                .map(obj -> (Set<String>) obj)
+                .orElse(Collections.emptySet());
     }
 
     /**
-     * Save the room ID for a user
+     * Add a room ID for a user
      *
      * @param userId the user ID
-     * @param roomId the room ID to associate with the user
+     * @param roomId the room ID to add to the user's room set
      */
-    public void set(String userId, String roomId) {
-        chatDataStore.set(buildKey(userId), roomId);
+    public void add(String userId, String roomId) {
+        Set<String> rooms = new HashSet<>(get(userId));
+        rooms.add(roomId);
+        chatDataStore.set(buildKey(userId), rooms);
     }
 
     /**
-     * Remove the room association for a user
+     * Remove a specific room ID from a user's room set
+     *
+     * @param userId the user ID
+     * @param roomId the room ID to remove
+     */
+    public void remove(String userId, String roomId) {
+        Set<String> rooms = new HashSet<>(get(userId));
+        rooms.remove(roomId);
+        if (rooms.isEmpty()) {
+            chatDataStore.delete(buildKey(userId));
+        } else {
+            chatDataStore.set(buildKey(userId), rooms);
+        }
+    }
+
+    /**
+     * Remove all room associations for a user
      *
      * @param userId the user ID
      */
-    public void del(String userId) {
+    public void clear(String userId) {
         chatDataStore.delete(buildKey(userId));
+    }
+
+    /**
+     * Check if a user is in a specific room
+     *
+     * @param userId the user ID
+     * @param roomId the room ID to check
+     * @return true if the user is in the room, false otherwise
+     */
+    public boolean isInRoom(String userId, String roomId) {
+        return get(userId).contains(roomId);
     }
 
     private String buildKey(String userId) {

@@ -4,6 +4,7 @@ import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
 import com.ktb.chatapp.dto.MessageResponse;
+import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.model.MessageType;
 import com.ktb.chatapp.model.Room;
@@ -17,13 +18,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -44,7 +43,6 @@ public class RoomLeaveHandler {
     private final UserRepository userRepository;
     private final UserRooms userRooms;
     private final MessageResponseMapper messageResponseMapper;
-    private final TaskScheduler taskScheduler;
     
     @OnEvent(LEAVE_ROOM)
     public void handleLeaveRoom(SocketIOClient client, String roomId) {
@@ -57,8 +55,7 @@ public class RoomLeaveHandler {
                 return;
             }
 
-            String currentRoom = userRooms.get(userId);
-            if (currentRoom == null || !currentRoom.equals(roomId)) {
+            if (!userRooms.isInRoom(userId, roomId)) {
                 log.debug("User {} is not in room {}", userId, roomId);
                 return;
             }
@@ -74,7 +71,7 @@ public class RoomLeaveHandler {
             roomRepository.removeParticipant(roomId, userId);
             
             client.leaveRoom(roomId);
-            userRooms.del(userId);
+            userRooms.remove(userId, roomId);
             
             log.info("User {} left room {}", userName, room.getName());
             
@@ -139,28 +136,28 @@ public class RoomLeaveHandler {
             log.error("Error sending system message", e);
         }
     }
-
+    
     private void broadcastParticipantList(String roomId) {
-        try {
-            Room room = roomRepository.findById(roomId).orElse(null);
-            if (room != null) {
-                List<User> participants = userRepository.findAllById(room.getParticipantIds());
-
-                var participantList = participants.stream()
-                        .map(user -> Map.of(
-                            "id", user.getId(),
-                            "name", user.getName(),
-                            "email", user.getEmail(),
-                            "profileImage", user.getProfileImage() != null ? user.getProfileImage() : ""
-                        ))
-                        .collect(Collectors.toList());
-
-                socketIOServer.getRoomOperations(roomId)
-                        .sendEvent(PARTICIPANTS_UPDATE, participantList);
-            }
-        } catch (Exception e) {
-            log.error("Error broadcasting participant list", e);
+        Optional<Room> roomOpt = roomRepository.findById(roomId);
+        if (roomOpt.isEmpty()) {
+            return;
         }
+        
+        var participantList = roomOpt.get()
+                .getParticipantIds()
+                .stream()
+                .map(userRepository::findById)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(UserResponse::from)
+                .toList();
+        
+        if (participantList.isEmpty()) {
+            return;
+        }
+        
+        socketIOServer.getRoomOperations(roomId)
+                .sendEvent(PARTICIPANTS_UPDATE, participantList);
     }
 
     private SocketUser getUserDto(SocketIOClient client) {

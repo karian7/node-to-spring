@@ -6,7 +6,7 @@ import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.repository.FileRepository;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
-import com.ktb.chatapp.util.FileSecurityUtil;
+import com.ktb.chatapp.util.FileUtil;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -57,7 +57,7 @@ public class FileService {
     public FileUploadResult uploadFile(MultipartFile file, String uploaderId) {
         try {
             // 파일 보안 검증
-            FileSecurityUtil.validateFile(file);
+            FileUtil.validateFile(file);
 
             // 안전한 파일명 생성
             String originalFilename = file.getOriginalFilename();
@@ -65,11 +65,11 @@ public class FileService {
                 originalFilename = "file";
             }
             originalFilename = StringUtils.cleanPath(originalFilename);
-            String safeFileName = FileSecurityUtil.generateSafeFileName(originalFilename);
+            String safeFileName = FileUtil.generateSafeFileName(originalFilename);
 
             // 파일 경로 보안 검증
             Path filePath = fileStorageLocation.resolve(safeFileName);
-            FileSecurityUtil.validatePath(filePath, fileStorageLocation);
+            FileUtil.validatePath(filePath, fileStorageLocation);
 
             // 파일 저장
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
@@ -77,7 +77,7 @@ public class FileService {
             log.info("파일 저장 완료: {}", safeFileName);
 
             // 원본 파일명 정규화
-            String normalizedOriginalname = FileSecurityUtil.normalizeOriginalFilename(originalFilename);
+            String normalizedOriginalname = FileUtil.normalizeOriginalFilename(originalFilename);
 
             // 메타데이터 생성 및 저장
             File fileEntity = File.builder()
@@ -109,7 +109,7 @@ public class FileService {
     public String storeFile(MultipartFile file, String subDirectory) {
         try {
             // 파일 보안 검증
-            FileSecurityUtil.validateFile(file);
+            FileUtil.validateFile(file);
 
             // 서브디렉토리 생성 (예: profiles)
             Path targetLocation = fileStorageLocation;
@@ -124,11 +124,11 @@ public class FileService {
                 originalFilename = "file";
             }
             originalFilename = StringUtils.cleanPath(originalFilename);
-            String safeFileName = FileSecurityUtil.generateSafeFileName(originalFilename);
+            String safeFileName = FileUtil.generateSafeFileName(originalFilename);
 
             // 파일 경로 보안 검증
             Path filePath = targetLocation.resolve(safeFileName);
-            FileSecurityUtil.validatePath(filePath, targetLocation);
+            FileUtil.validatePath(filePath, targetLocation);
 
             // 파일 저장
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
@@ -174,7 +174,7 @@ public class FileService {
 
             // 5. 파일 경로 검증 및 로드
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
-            FileSecurityUtil.validatePath(filePath, this.fileStorageLocation);
+            FileUtil.validatePath(filePath, this.fileStorageLocation);
 
             Resource resource = new UrlResource(filePath.toUri());
             if (resource.exists()) {

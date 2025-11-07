@@ -1,9 +1,7 @@
-package com.ktb.chatapp.service;
+package com.ktb.chatapp.websocket.socketio.ai;
 
-import com.ktb.chatapp.service.AiService.ChunkData;
 import com.ktb.chatapp.websocket.socketio.handler.StreamingSession;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @SpringBootTest
 @DisplayName("AiService 통합 테스트 (실제 API 호출)")
-@TestPropertySource(properties = "socketio.enabled=false")
+@TestPropertySource(properties = "socketio.enabled=true")
 class AiServiceIntegrationTest {
 
     @Autowired
@@ -46,8 +44,8 @@ class AiServiceIntegrationTest {
                 .messageId("test-message-id")
                 .roomId("test-room-id")
                 .userId("test-user-id")
+                .timestamp(System.currentTimeMillis())
                 .query("안녕하세요")
-                .timestamp(LocalDateTime.now())
                 .build();
     }
 

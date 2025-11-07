@@ -5,7 +5,7 @@ import com.ktb.chatapp.dto.UpdateProfileRequest;
 import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.UserRepository;
-import com.ktb.chatapp.util.FileSecurityUtil;
+import com.ktb.chatapp.util.FileUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -137,7 +137,7 @@ public class UserService {
         }
 
         // FileSecurityUtil의 static 메서드 호출
-        String extension = FileSecurityUtil.getFileExtension(originalFilename).toLowerCase();
+        String extension = FileUtil.getFileExtension(originalFilename).toLowerCase();
         if (!ALLOWED_EXTENSIONS.contains(extension)) {
             throw new IllegalArgumentException("이미지 파일만 업로드할 수 있습니다.");
         }

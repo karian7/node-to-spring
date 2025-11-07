@@ -19,6 +19,6 @@ public class ActiveStreamResponse {
     private String type;
     private String aiType;
     private String content;
-    private String timestamp;  // ISO_INSTANT 형식 문자열
+    private String timestamp;  // ISO_INSTANT 형식 문자열 예) 2025-11-07T13:45:30Z
     private boolean isStreaming;
 }

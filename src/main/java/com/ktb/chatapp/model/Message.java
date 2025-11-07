@@ -138,15 +138,6 @@ public class Message {
     }
     
     /**
-     * 파일 메타데이터가 필요한지 확인한다.
-     *
-     * @return fileId는 있지만 metadata가 없으면 true
-     */
-    public boolean needsFileMetadata() {
-        return this.fileId != null && this.metadata == null;
-    }
-    
-    /**
      * 파일 메타데이터를 메시지에 첨부한다.
      *
      * @param file 파일 객체

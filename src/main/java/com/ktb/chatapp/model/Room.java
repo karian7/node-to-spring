@@ -42,7 +42,6 @@ public class Room {
     
     /**
      * 방에 참가자를 추가한다.
-     * Tell, Don't Ask 원칙을 준수하여 도메인 로직을 캡슐화한다.
      *
      * @param userId 추가할 사용자 ID
      */
