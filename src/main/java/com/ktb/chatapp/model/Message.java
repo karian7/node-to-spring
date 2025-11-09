@@ -94,7 +94,7 @@ public class Message {
     
     
     public long toTimestampMillis() {
-        return timestamp.atZone(java.time.ZoneId.systemDefault()).toEpochSecond() * 1000;
+        return timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
     
     /**

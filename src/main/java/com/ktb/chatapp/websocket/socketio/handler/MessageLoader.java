@@ -10,8 +10,6 @@ import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.MessageReadStatusService;
 import jakarta.annotation.Nullable;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +19,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
+
+import static java.util.Collections.emptyList;
 
 @Slf4j
 @Component
@@ -43,9 +43,8 @@ public class MessageLoader {
         } catch (Exception e) {
             log.error("Error loading initial messages for room {}", data.roomId(), e);
             return FetchMessagesResponse.builder()
-                    .messages(new ArrayList<>())
+                    .messages(emptyList())
                     .hasMore(false)
-                    .oldestTimestamp(null)
                     .build();
         }
     }
@@ -83,29 +82,9 @@ public class MessageLoader {
         return FetchMessagesResponse.builder()
                 .messages(messageResponses)
                 .hasMore(hasMore)
-                .oldestTimestamp(convertToIsoTimestamp(sortedMessages))
                 .build();
     }
 
-    /**
-     * LocalDateTime을 ISO_INSTANT 형식으로 변환
-     */
-    private String convertToIsoTimestamp(List<Message> messages) {
-        if (messages.isEmpty()) {
-            return null;
-        }
-
-        Message firstMessage = messages.getFirst();
-        if (firstMessage.getTimestamp() == null) {
-            return null;
-        }
-        
-        return firstMessage.getTimestamp()
-                .atZone(ZoneId.systemDefault())
-                .toInstant()
-                .toString();
-    }
-    
     /**
      * AI 경우 null 반환 가능
      */

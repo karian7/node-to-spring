@@ -19,6 +19,5 @@ public class JoinRoomSuccessResponse {
     private List<UserResponse> participants;
     private List<MessageResponse> messages;
     private boolean hasMore;
-    private String oldestTimestamp;  // ISO_INSTANT 형식 문자열
     private List<ActiveStreamResponse> activeStreams;
 }

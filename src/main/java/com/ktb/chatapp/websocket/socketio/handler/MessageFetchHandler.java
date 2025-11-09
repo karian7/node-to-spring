@@ -77,9 +77,9 @@ public class MessageFetchHandler {
                 return messageLoader.loadMessages(data, userId);
             });
             
-            log.debug("Previous messages loaded - room: {}, count: {}, hasMore: {}, oldestTimestamp: {}",
+            log.debug("Previous messages loaded - room: {}, count: {}, hasMore: {}",
                     data.roomId(), result.getMessages().size(),
-                    result.isHasMore(), result.getOldestTimestamp());
+                    result.isHasMore());
             
             client.sendEvent(PREVIOUS_MESSAGES_LOADED, result);
 

@@ -118,7 +118,6 @@ public class RoomJoinHandler {
                 .participants(participants)
                 .messages(messageLoadResult.getMessages())
                 .hasMore(messageLoadResult.isHasMore())
-                .oldestTimestamp(messageLoadResult.getOldestTimestamp())
                 .activeStreams(Collections.emptyList())
                 .build();
 

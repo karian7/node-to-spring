@@ -176,6 +176,5 @@ class MessageLoaderTest {
         
         assertThat(result.getMessages()).isEmpty();
         assertThat(result.isHasMore()).isFalse();
-        assertThat(result.getOldestTimestamp()).isNull();
     }
 }
